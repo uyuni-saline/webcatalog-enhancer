@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.5.0
+// @version      2.6.0
 // @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -162,24 +162,23 @@
 
     function initFavoritesPage() {
         let updateScheduled = false;
-        const detailLinkRequests = new Map();
+        const detailRequests = new Map();
 
-        function findCircleUrl(cell) {
+        function findCircleLink(cell) {
             let row = cell.closest('tr')?.previousElementSibling;
 
             while (row && !row.matches('tr.webcatalog-circle-list-detail')) {
                 row = row.previousElementSibling;
             }
 
-            const circleLink = row?.querySelector(
+            return row?.querySelector(
                 'td.infotable-circlename a[href*="/Circle/"]'
-            );
-            return circleLink?.href || '';
+            ) || null;
         }
 
-        function fetchDetailLinks(circleUrl) {
-            if (detailLinkRequests.has(circleUrl)) {
-                return detailLinkRequests.get(circleUrl);
+        function fetchCircleDetails(circleUrl) {
+            if (detailRequests.has(circleUrl)) {
+                return detailRequests.get(circleUrl);
             }
 
             const request = fetch(circleUrl, { credentials: 'same-origin' })
@@ -200,6 +199,7 @@
                     const websiteIcon = detailDocument.querySelector(
                         'img[src*="img_icon_myhome_on.png"]'
                     );
+                    const circleInfo = extractCircleInfo(detailDocument);
 
                     return {
                         x: normalizeXUrl(
@@ -210,15 +210,16 @@
                         ),
                         website: normalizeWebsiteUrl(
                             websiteIcon?.closest('a')?.getAttribute('href') || ''
-                        )
+                        ),
+                        circleText: circleInfo.hasPlacement ? circleInfo.spaceInfo : ''
                     };
                 })
                 .catch(error => {
-                    detailLinkRequests.delete(circleUrl);
+                    detailRequests.delete(circleUrl);
                     throw error;
                 });
 
-            detailLinkRequests.set(circleUrl, request);
+            detailRequests.set(circleUrl, request);
             return request;
         }
 
@@ -270,30 +271,36 @@
             link.appendChild(linkedIcon);
         }
 
-        function applyFavoriteIconLinks(cell, links) {
+        function applyFavoriteDetails(cell, details) {
             const icons = findFavoriteSupportIcons(cell);
-            overrideIconLink(icons.x, links.x, true);
-            overrideIconLink(icons.pixiv, links.pixiv);
-            overrideIconLink(icons.website, links.website);
+            overrideIconLink(icons.x, details.x, true);
+            overrideIconLink(icons.pixiv, details.pixiv);
+            overrideIconLink(icons.website, details.website);
+
+            const circleLink = findCircleLink(cell);
+            if (circleLink && details.circleText &&
+                circleLink.textContent.trim() !== details.circleText) {
+                circleLink.textContent = details.circleText;
+            }
         }
 
-        async function resolveFavoriteLinks(cell) {
+        async function resolveFavoriteDetails(cell) {
             const memo = cell.querySelector(SELECTORS.favoriteMemo);
-            const circleUrl = findCircleUrl(cell);
-            let detailLinks = { x: '', pixiv: '', website: '' };
+            const circleUrl = findCircleLink(cell)?.href || '';
+            let detailInfo = { x: '', pixiv: '', website: '', circleText: '' };
 
             try {
-                if (circleUrl) detailLinks = await fetchDetailLinks(circleUrl);
+                if (circleUrl) detailInfo = await fetchCircleDetails(circleUrl);
             } catch (error) {
                 console.error(`无法读取社团详情页：${circleUrl}`, error);
             }
 
-            const resolvedLinks = {
-                ...detailLinks,
-                x: detailLinks.x || extractXUrlFromText(memo?.textContent || '')
+            const resolvedDetails = {
+                ...detailInfo,
+                x: detailInfo.x || extractXUrlFromText(memo?.textContent || '')
             };
-            cell._wcEnhancerLinks = resolvedLinks;
-            applyFavoriteIconLinks(cell, resolvedLinks);
+            cell._wcEnhancerDetails = resolvedDetails;
+            applyFavoriteDetails(cell, resolvedDetails);
             cell.dataset.wcEnhancerLinksState = 'done';
         }
 
@@ -305,21 +312,22 @@
 
                 if (cell.dataset.wcEnhancerLinksState === 'loading') return;
                 if (cell.dataset.wcEnhancerLinksState === 'done') {
-                    const resolvedLinks = cell._wcEnhancerLinks || {
+                    const resolvedDetails = cell._wcEnhancerDetails || {
                         x: '',
                         pixiv: '',
-                        website: ''
+                        website: '',
+                        circleText: ''
                     };
-                    if (!resolvedLinks.x) {
-                        resolvedLinks.x = extractXUrlFromText(memo.textContent);
+                    if (!resolvedDetails.x) {
+                        resolvedDetails.x = extractXUrlFromText(memo.textContent);
                     }
-                    cell._wcEnhancerLinks = resolvedLinks;
-                    applyFavoriteIconLinks(cell, resolvedLinks);
+                    cell._wcEnhancerDetails = resolvedDetails;
+                    applyFavoriteDetails(cell, resolvedDetails);
                     return;
                 }
 
                 cell.dataset.wcEnhancerLinksState = 'loading';
-                resolveFavoriteLinks(cell);
+                resolveFavoriteDetails(cell);
             });
         }
 
@@ -340,8 +348,8 @@
         });
     }
 
-    function findTableValue(label) {
-        for (const th of document.querySelectorAll('th')) {
+    function findTableValue(label, root = document) {
+        for (const th of root.querySelectorAll('th')) {
             if (th.textContent.includes(label)) {
                 return th.nextElementSibling?.textContent.trim() || '';
             }
@@ -399,18 +407,40 @@
         return originalSpace.replace(/^([東西南])/u, `$1${hall || '?'}`);
     }
 
+    function formatPlacement(spaceName) {
+        const { day, space } = parseSpaceName(spaceName);
+        const spaceWithHall = addHallToSpace(day, space);
+        return {
+            day,
+            space,
+            spaceWithHall,
+            text: `${day}${spaceWithHall}`
+        };
+    }
+
+    function extractCircleInfo(root = document) {
+        const title = root.querySelector('meta[property="og:title"]')?.content || '';
+        const circleName = title.split(' | ')[0].trim() || '？';
+        const spaceName = findTableValue('配置スペース', root);
+        const authorName = findTableValue('執筆者名', root) || 'NoName';
+        const placement = formatPlacement(spaceName);
+        const circleAuthor = `[${circleName} (${authorName})]`;
+
+        return {
+            ...placement,
+            circleName,
+            authorName,
+            circleAuthor,
+            hasPlacement: Boolean(spaceName),
+            spaceInfo: `${placement.text} ${circleAuthor}`.trim()
+        };
+    }
+
     function initCirclePage() {
         const target = document.querySelector(SELECTORS.item);
         if (!target || target.querySelector('.js-wc-enhancer-circle-info')) return;
 
-        const title = document.querySelector('meta[property="og:title"]')?.content || '';
-        const circleName = title.split(' | ')[0].trim() || '？';
-        const spaceName = findTableValue('配置スペース');
-        const authorName = findTableValue('執筆者名') || 'NoName';
-        const { day, space } = parseSpaceName(spaceName);
-        const circleAuthor = `[${circleName} (${authorName})]`;
-        const spaceWithHall = addHallToSpace(day, space);
-        const spaceInfo = `${day}${spaceWithHall} ${circleAuthor}`.trim();
+        const { circleAuthor, spaceInfo } = extractCircleInfo();
 
         const container = document.createElement('div');
         container.className = 'js-wc-enhancer-circle-info';
@@ -446,8 +476,7 @@
         };
 
         const dayLocation = placement.innerText.trim();
-        const { day, space } = parseSpaceName(dayLocation);
-        const dateSpace = `${day}${space}`;
+        const dateSpace = formatPlacement(dayLocation).text;
         const circleName = decodeHtml(contentLines[1]) || '？';
         const author = decodeHtml(contentLines[3]) || '？';
         const textLine = `${dateSpace} [${circleName} (${author})]`;
