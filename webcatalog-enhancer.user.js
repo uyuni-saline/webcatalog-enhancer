@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.3.0
+// @version      2.4.0
 // @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -198,28 +198,40 @@
         function overrideIconLink(icon, url, activateTwitterIcon = false) {
             if (!icon || !url) return;
 
-            icon.dataset.wcEnhancerUrl = url;
-            icon.style.cursor = 'pointer';
+            const activateIcon = targetIcon => {
+                targetIcon.style.cursor = 'pointer';
+                if (!activateTwitterIcon) return;
 
-            if (activateTwitterIcon) {
-                const src = icon.getAttribute('src') || '';
+                const src = targetIcon.getAttribute('src') || '';
                 if (src.includes('img_icon_twitter_off.png')) {
-                    icon.setAttribute(
+                    targetIcon.setAttribute(
                         'src',
                         src.replace('img_icon_twitter_off.png', 'img_icon_twitter_on.png')
                     );
                 }
+            };
+
+            const existingLink = icon.parentElement?.matches('a.js-wc-enhancer-icon-link')
+                ? icon.parentElement
+                : null;
+            if (existingLink) {
+                existingLink.href = url;
+                activateIcon(icon);
+                return;
             }
 
-            if (icon.dataset.wcEnhancerHandlerAttached === 'true') return;
-            icon.dataset.wcEnhancerHandlerAttached = 'true';
-            icon.addEventListener('click', event => {
-                const targetUrl = icon.dataset.wcEnhancerUrl;
-                if (!targetUrl) return;
-                event.preventDefault();
-                event.stopImmediatePropagation();
-                window.open(targetUrl, '_blank', 'noopener,noreferrer');
-            }, true);
+            // 克隆图标以移除网站原有的Knockout点击监听，再使用标准链接包装。
+            const linkedIcon = icon.cloneNode(true);
+            linkedIcon.removeAttribute('data-bind');
+            activateIcon(linkedIcon);
+
+            const link = document.createElement('a');
+            link.href = url;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.className = 'js-wc-enhancer-icon-link';
+            icon.replaceWith(link);
+            link.appendChild(linkedIcon);
         }
 
         function applyFavoriteIconLinks(cell, links) {
@@ -249,7 +261,7 @@
             cell.dataset.wcEnhancerLinksState = 'done';
         }
 
-        function addFavoriteLinkButtons() {
+        function applyFavoriteLinks() {
             document.querySelectorAll(SELECTORS.favoriteCell).forEach(cell => {
                 const memoEditButton = cell.querySelector(SELECTORS.memoEditButton);
                 const memo = cell.querySelector(SELECTORS.favoriteMemo);
@@ -280,11 +292,11 @@
             updateScheduled = true;
             window.requestAnimationFrame(() => {
                 updateScheduled = false;
-                addFavoriteLinkButtons();
+                applyFavoriteLinks();
             });
         }
 
-        addFavoriteLinkButtons();
+        applyFavoriteLinks();
         new MutationObserver(scheduleUpdate).observe(document.body, {
             childList: true,
             subtree: true,
