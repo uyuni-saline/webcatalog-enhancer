@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.1.0
-// @description  为Comike Web Catalog添加X链接、社团信息复制和印刷页面CSV导出功能
+// @version      2.2.0
+// @description  为Comike Web Catalog添加X、Pixiv和FANBOX链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
 // @supportURL   https://github.com/uyuni-saline/webcatalog-enhancer/issues
@@ -100,9 +100,32 @@
         return match ? normalizeXUrl(match[0]) : '';
     }
 
+    function normalizePixivUrl(url) {
+        try {
+            const parsed = new URL(url, location.href);
+            return parsed.protocol === 'https:' &&
+                (parsed.hostname === 'pixiv.net' || parsed.hostname === 'www.pixiv.net')
+                ? parsed.href
+                : '';
+        } catch (_error) {
+            return '';
+        }
+    }
+
+    function normalizeFanboxUrl(url) {
+        try {
+            const parsed = new URL(url, location.href);
+            const isFanbox = parsed.hostname === 'fanbox.cc' ||
+                parsed.hostname.endsWith('.fanbox.cc');
+            return parsed.protocol === 'https:' && isFanbox ? parsed.href : '';
+        } catch (_error) {
+            return '';
+        }
+    }
+
     function initFavoritesPage() {
         let updateScheduled = false;
-        const detailXUrlRequests = new Map();
+        const detailLinkRequests = new Map();
 
         function findCircleUrl(cell) {
             let row = cell.closest('tr')?.previousElementSibling;
@@ -117,10 +140,9 @@
             return circleLink?.href || '';
         }
 
-        function fetchDetailXUrl(circleUrl, retry = false) {
-            if (retry) detailXUrlRequests.delete(circleUrl);
-            if (detailXUrlRequests.has(circleUrl)) {
-                return detailXUrlRequests.get(circleUrl);
+        function fetchDetailLinks(circleUrl) {
+            if (detailLinkRequests.has(circleUrl)) {
+                return detailLinkRequests.get(circleUrl);
             }
 
             const request = fetch(circleUrl, { credentials: 'same-origin' })
@@ -135,95 +157,121 @@
                     const xIcon = detailDocument.querySelector(
                         'img[alt="X(Twitter)"][src*="img_icon_twitter_on.png"]'
                     );
-                    const detailUrl = xIcon?.closest('a')?.getAttribute('href') || '';
-                    return normalizeXUrl(detailUrl);
+                    const pixivIcon = detailDocument.querySelector(
+                        'img[alt="pixiv"][src*="img_icon_pixiv_on.png"]'
+                    );
+                    const websiteIcon = detailDocument.querySelector(
+                        'img[src*="img_icon_myhome_on.png"]'
+                    );
+
+                    return {
+                        x: normalizeXUrl(
+                            xIcon?.closest('a')?.getAttribute('href') || ''
+                        ),
+                        pixiv: normalizePixivUrl(
+                            pixivIcon?.closest('a')?.getAttribute('href') || ''
+                        ),
+                        fanbox: normalizeFanboxUrl(
+                            websiteIcon?.closest('a')?.getAttribute('href') || ''
+                        )
+                    };
                 })
                 .catch(error => {
-                    detailXUrlRequests.delete(circleUrl);
+                    detailLinkRequests.delete(circleUrl);
                     throw error;
                 });
 
-            detailXUrlRequests.set(circleUrl, request);
+            detailLinkRequests.set(circleUrl, request);
             return request;
         }
 
-        function setButtonReady(button, xUrl) {
-            button.href = xUrl;
+        function createFavoriteLinkButton(className, label, url) {
+            const button = document.createElement('a');
+            button.href = url;
             button.target = '_blank';
             button.rel = 'noopener noreferrer';
-            button.textContent = 'X链接';
-            button.dataset.state = 'ready';
-            button.removeAttribute('aria-disabled');
-            button.title = xUrl;
+            button.textContent = label;
+            button.title = url;
+            button.className = `c-btn c-btn--green ${className}`;
+            button.style.marginLeft = '8px';
+            return button;
         }
 
-        function setButtonUnavailable(button, state, text) {
-            button.removeAttribute('href');
-            button.removeAttribute('target');
-            button.removeAttribute('rel');
-            button.textContent = text;
-            button.dataset.state = state;
-            button.setAttribute('aria-disabled', 'true');
-            button.removeAttribute('title');
+        function renderFavoriteLinkButtons(cell, memoEditButton, links) {
+            const definitions = [
+                {
+                    key: 'x',
+                    selector: '.js-wc-enhancer-open-x',
+                    className: 'js-wc-enhancer-open-x',
+                    label: 'X链接'
+                },
+                {
+                    key: 'pixiv',
+                    selector: '.js-wc-enhancer-open-pixiv',
+                    className: 'js-wc-enhancer-open-pixiv',
+                    label: 'Pixiv链接'
+                },
+                {
+                    key: 'fanbox',
+                    selector: '.js-wc-enhancer-open-fanbox',
+                    className: 'js-wc-enhancer-open-fanbox',
+                    label: 'FANBOX链接'
+                }
+            ];
+
+            let insertAfter = memoEditButton;
+            definitions.forEach(definition => {
+                let button = cell.querySelector(definition.selector);
+                const url = links[definition.key];
+
+                if (!button && url) {
+                    button = createFavoriteLinkButton(
+                        definition.className,
+                        definition.label,
+                        url
+                    );
+                    insertAfter.insertAdjacentElement('afterend', button);
+                }
+
+                if (button) insertAfter = button;
+            });
         }
 
-        async function resolveFavoriteXLink(cell, button, retry = false) {
+        async function resolveFavoriteLinks(cell, memoEditButton) {
             const memo = cell.querySelector(SELECTORS.favoriteMemo);
             const circleUrl = findCircleUrl(cell);
-            setButtonUnavailable(button, 'loading', '读取X…');
+            let detailLinks = { x: '', pixiv: '', fanbox: '' };
 
             try {
-                const detailXUrl = circleUrl
-                    ? await fetchDetailXUrl(circleUrl, retry)
-                    : '';
-                const memoXUrl = extractXUrlFromText(memo?.textContent || '');
-                const xUrl = detailXUrl || memoXUrl;
-
-                if (xUrl) {
-                    setButtonReady(button, xUrl);
-                } else {
-                    setButtonUnavailable(button, 'missing', '无X链接');
-                }
+                if (circleUrl) detailLinks = await fetchDetailLinks(circleUrl);
             } catch (error) {
-                const memoXUrl = extractXUrlFromText(memo?.textContent || '');
-                if (memoXUrl) {
-                    setButtonReady(button, memoXUrl);
-                } else {
-                    console.error(`无法读取社团详情页：${circleUrl}`, error);
-                    setButtonUnavailable(button, 'error', '读取失败');
-                }
+                console.error(`无法读取社团详情页：${circleUrl}`, error);
             }
+
+            renderFavoriteLinkButtons(cell, memoEditButton, {
+                ...detailLinks,
+                x: detailLinks.x || extractXUrlFromText(memo?.textContent || '')
+            });
+            cell.dataset.wcEnhancerLinksState = 'done';
         }
 
-        function addXLinkButtons() {
+        function addFavoriteLinkButtons() {
             document.querySelectorAll(SELECTORS.favoriteCell).forEach(cell => {
                 const memoEditButton = cell.querySelector(SELECTORS.memoEditButton);
                 const memo = cell.querySelector(SELECTORS.favoriteMemo);
                 if (!memoEditButton || !memo) return;
 
-                const existingButton = cell.querySelector('.js-wc-enhancer-open-x');
-                if (existingButton) {
-                    if (existingButton.dataset.state === 'missing' ||
-                        existingButton.dataset.state === 'error') {
-                        const memoXUrl = extractXUrlFromText(memo.textContent);
-                        if (memoXUrl) setButtonReady(existingButton, memoXUrl);
+                if (cell.dataset.wcEnhancerLinksState === 'loading') return;
+                if (cell.dataset.wcEnhancerLinksState === 'done') {
+                    const memoXUrl = extractXUrlFromText(memo.textContent);
+                    if (memoXUrl && !cell.querySelector('.js-wc-enhancer-open-x')) {
+                        renderFavoriteLinkButtons(cell, memoEditButton, { x: memoXUrl });
                     }
                     return;
                 }
 
-                const linkButton = document.createElement('a');
-                linkButton.className = 'c-btn c-btn--green js-wc-enhancer-open-x';
-                linkButton.style.marginLeft = '8px';
-                linkButton.addEventListener('click', event => {
-                    if (linkButton.dataset.state === 'ready') return;
-                    event.preventDefault();
-                    if (linkButton.dataset.state === 'error') {
-                        resolveFavoriteXLink(cell, linkButton, true);
-                    }
-                });
-                setButtonUnavailable(linkButton, 'loading', '读取X…');
-                memoEditButton.insertAdjacentElement('afterend', linkButton);
-                resolveFavoriteXLink(cell, linkButton);
+                cell.dataset.wcEnhancerLinksState = 'loading';
+                resolveFavoriteLinks(cell, memoEditButton);
             });
         }
 
@@ -232,11 +280,11 @@
             updateScheduled = true;
             window.requestAnimationFrame(() => {
                 updateScheduled = false;
-                addXLinkButtons();
+                addFavoriteLinkButtons();
             });
         }
 
-        addXLinkButtons();
+        addFavoriteLinkButtons();
         new MutationObserver(scheduleUpdate).observe(document.body, {
             childList: true,
             subtree: true,
