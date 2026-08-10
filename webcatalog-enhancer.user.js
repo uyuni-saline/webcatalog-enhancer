@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.0.0
+// @version      2.1.0
 // @description  为Comike Web Catalog添加X链接、社团信息复制和印刷页面CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -95,31 +95,135 @@
         }
     }
 
+    function extractXUrlFromText(text) {
+        const match = text.match(/https:\/\/(?:www\.)?(?:x|twitter)\.com\/[^\s]+/i);
+        return match ? normalizeXUrl(match[0]) : '';
+    }
+
     function initFavoritesPage() {
         let updateScheduled = false;
+        const detailXUrlRequests = new Map();
+
+        function findCircleUrl(cell) {
+            let row = cell.closest('tr')?.previousElementSibling;
+
+            while (row && !row.matches('tr.webcatalog-circle-list-detail')) {
+                row = row.previousElementSibling;
+            }
+
+            const circleLink = row?.querySelector(
+                'td.infotable-circlename a[href*="/Circle/"]'
+            );
+            return circleLink?.href || '';
+        }
+
+        function fetchDetailXUrl(circleUrl, retry = false) {
+            if (retry) detailXUrlRequests.delete(circleUrl);
+            if (detailXUrlRequests.has(circleUrl)) {
+                return detailXUrlRequests.get(circleUrl);
+            }
+
+            const request = fetch(circleUrl, { credentials: 'same-origin' })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    return response.text();
+                })
+                .then(html => {
+                    const detailDocument = new DOMParser().parseFromString(html, 'text/html');
+                    const xIcon = detailDocument.querySelector(
+                        'img[alt="X(Twitter)"][src*="img_icon_twitter_on.png"]'
+                    );
+                    const detailUrl = xIcon?.closest('a')?.getAttribute('href') || '';
+                    return normalizeXUrl(detailUrl);
+                })
+                .catch(error => {
+                    detailXUrlRequests.delete(circleUrl);
+                    throw error;
+                });
+
+            detailXUrlRequests.set(circleUrl, request);
+            return request;
+        }
+
+        function setButtonReady(button, xUrl) {
+            button.href = xUrl;
+            button.target = '_blank';
+            button.rel = 'noopener noreferrer';
+            button.textContent = 'X链接';
+            button.dataset.state = 'ready';
+            button.removeAttribute('aria-disabled');
+            button.title = xUrl;
+        }
+
+        function setButtonUnavailable(button, state, text) {
+            button.removeAttribute('href');
+            button.removeAttribute('target');
+            button.removeAttribute('rel');
+            button.textContent = text;
+            button.dataset.state = state;
+            button.setAttribute('aria-disabled', 'true');
+            button.removeAttribute('title');
+        }
+
+        async function resolveFavoriteXLink(cell, button, retry = false) {
+            const memo = cell.querySelector(SELECTORS.favoriteMemo);
+            const circleUrl = findCircleUrl(cell);
+            setButtonUnavailable(button, 'loading', '读取X…');
+
+            try {
+                const detailXUrl = circleUrl
+                    ? await fetchDetailXUrl(circleUrl, retry)
+                    : '';
+                const memoXUrl = extractXUrlFromText(memo?.textContent || '');
+                const xUrl = detailXUrl || memoXUrl;
+
+                if (xUrl) {
+                    setButtonReady(button, xUrl);
+                } else {
+                    setButtonUnavailable(button, 'missing', '无X链接');
+                }
+            } catch (error) {
+                const memoXUrl = extractXUrlFromText(memo?.textContent || '');
+                if (memoXUrl) {
+                    setButtonReady(button, memoXUrl);
+                } else {
+                    console.error(`无法读取社团详情页：${circleUrl}`, error);
+                    setButtonUnavailable(button, 'error', '读取失败');
+                }
+            }
+        }
 
         function addXLinkButtons() {
             document.querySelectorAll(SELECTORS.favoriteCell).forEach(cell => {
-                if (cell.querySelector('.js-wc-enhancer-open-x')) return;
-
                 const memoEditButton = cell.querySelector(SELECTORS.memoEditButton);
                 const memo = cell.querySelector(SELECTORS.favoriteMemo);
                 if (!memoEditButton || !memo) return;
 
-                const match = memo.textContent.match(/https:\/\/(?:www\.)?(?:x|twitter)\.com\/[^\s]+/i);
-                if (!match) return;
-
-                const xUrl = normalizeXUrl(match[0]);
-                if (!xUrl) return;
+                const existingButton = cell.querySelector('.js-wc-enhancer-open-x');
+                if (existingButton) {
+                    if (existingButton.dataset.state === 'missing' ||
+                        existingButton.dataset.state === 'error') {
+                        const memoXUrl = extractXUrlFromText(memo.textContent);
+                        if (memoXUrl) setButtonReady(existingButton, memoXUrl);
+                    }
+                    return;
+                }
 
                 const linkButton = document.createElement('a');
-                linkButton.textContent = 'X链接';
-                linkButton.href = xUrl;
-                linkButton.target = '_blank';
-                linkButton.rel = 'noopener noreferrer';
                 linkButton.className = 'c-btn c-btn--green js-wc-enhancer-open-x';
                 linkButton.style.marginLeft = '8px';
+                linkButton.addEventListener('click', event => {
+                    if (linkButton.dataset.state === 'ready') return;
+                    event.preventDefault();
+                    if (linkButton.dataset.state === 'error') {
+                        resolveFavoriteXLink(cell, linkButton, true);
+                    }
+                });
+                setButtonUnavailable(linkButton, 'loading', '读取X…');
                 memoEditButton.insertAdjacentElement('afterend', linkButton);
+                resolveFavoriteXLink(cell, linkButton);
             });
         }
 
