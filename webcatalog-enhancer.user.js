@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.6.0
+// @version      2.7.0
 // @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -148,16 +148,94 @@
         }
     }
 
-    function normalizeWebsiteUrl(url) {
+    function normalizeWebsiteUrl(url, baseUrl = location.href) {
         if (!url || !String(url).trim()) return '';
         try {
-            const parsed = new URL(url, location.href);
+            const parsed = new URL(url, baseUrl);
             return parsed.protocol === 'http:' || parsed.protocol === 'https:'
                 ? parsed.href
                 : '';
         } catch (_error) {
             return '';
         }
+    }
+
+    function extractLinkedIcon(root, srcFragment, baseUrl, fallbackLabel) {
+        const icon = root.querySelector(`img[src*="${srcFragment}"]`);
+        const link = icon?.closest('a');
+        const url = normalizeWebsiteUrl(link?.getAttribute('href') || '', baseUrl);
+        const iconUrl = normalizeWebsiteUrl(icon?.getAttribute('src') || '', baseUrl);
+
+        if (!url || !iconUrl) return null;
+        return {
+            url,
+            iconUrl,
+            alt: icon.getAttribute('alt') || fallbackLabel,
+            title: icon.getAttribute('title') || fallbackLabel
+        };
+    }
+
+    function removeFavoriteIconButton(icon) {
+        if (!icon) return;
+        const item = icon.closest('li');
+        if (item) {
+            item.remove();
+        } else {
+            icon.remove();
+        }
+    }
+
+    function ensureFavoriteStoreLink(supportRow, insertionPoint, storeKey, store) {
+        const itemClass = `js-wc-enhancer-store-${storeKey}`;
+        let item = supportRow?.querySelector(`li.${itemClass}`) || null;
+
+        if (!store?.url || !store.iconUrl || !insertionPoint) {
+            item?.remove();
+            return insertionPoint;
+        }
+
+        if (!item) {
+            item = document.createElement('li');
+            item.className = itemClass;
+
+            const link = document.createElement('a');
+            link.className = 'js-wc-enhancer-icon-link js-wc-enhancer-store-link';
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+
+            const icon = document.createElement('img');
+            link.appendChild(icon);
+            item.appendChild(link);
+            insertionPoint.insertAdjacentElement('afterend', item);
+        }
+
+        const link = item.querySelector('a');
+        const icon = item.querySelector('img');
+        link.href = store.url;
+        icon.src = store.iconUrl;
+        icon.alt = store.alt;
+        icon.title = store.title;
+        icon.style.cursor = 'pointer';
+        return item;
+    }
+
+    function customizeFavoriteSupportButtons(icons, details) {
+        removeFavoriteIconButton(icons.niconico);
+        removeFavoriteIconButton(icons.clipstudio);
+
+        let insertionPoint = icons.website?.closest('li') || null;
+        insertionPoint = ensureFavoriteStoreLink(
+            icons.supportRow,
+            insertionPoint,
+            'melonbooks',
+            details.melonbooks
+        );
+        ensureFavoriteStoreLink(
+            icons.supportRow,
+            insertionPoint,
+            'booth',
+            details.booth
+        );
     }
 
     function initFavoritesPage() {
@@ -200,6 +278,18 @@
                         'img[src*="img_icon_myhome_on.png"]'
                     );
                     const circleInfo = extractCircleInfo(detailDocument);
+                    const melonbooks = extractLinkedIcon(
+                        detailDocument,
+                        'onlinebookstore/melonbooks/icon.png',
+                        circleUrl,
+                        'Melonbooks'
+                    );
+                    const booth = extractLinkedIcon(
+                        detailDocument,
+                        'onlinebookstore/booth/icon.png',
+                        circleUrl,
+                        'BOOTH'
+                    );
 
                     return {
                         x: normalizeXUrl(
@@ -209,8 +299,11 @@
                             pixivIcon?.closest('a')?.getAttribute('href') || ''
                         ),
                         website: normalizeWebsiteUrl(
-                            websiteIcon?.closest('a')?.getAttribute('href') || ''
+                            websiteIcon?.closest('a')?.getAttribute('href') || '',
+                            circleUrl
                         ),
+                        melonbooks,
+                        booth,
                         circleText: circleInfo.hasPlacement ? circleInfo.spaceInfo : ''
                     };
                 })
@@ -226,9 +319,12 @@
         function findFavoriteSupportIcons(cell) {
             const supportRow = cell.closest('tr')?.nextElementSibling;
             return {
+                supportRow,
                 x: supportRow?.querySelector('img.support-list-twitter') || null,
                 pixiv: supportRow?.querySelector('img.support-list-pixiv') || null,
-                website: supportRow?.querySelector('img.support-list-myhome') || null
+                website: supportRow?.querySelector('img.support-list-myhome') || null,
+                niconico: supportRow?.querySelector('img.support-list-niconico') || null,
+                clipstudio: supportRow?.querySelector('img.support-list-clipstudio') || null
             };
         }
 
@@ -276,6 +372,7 @@
             overrideIconLink(icons.x, details.x, true);
             overrideIconLink(icons.pixiv, details.pixiv);
             overrideIconLink(icons.website, details.website);
+            customizeFavoriteSupportButtons(icons, details);
 
             const circleLink = findCircleLink(cell);
             if (circleLink && details.circleText &&
@@ -287,7 +384,14 @@
         async function resolveFavoriteDetails(cell) {
             const memo = cell.querySelector(SELECTORS.favoriteMemo);
             const circleUrl = findCircleLink(cell)?.href || '';
-            let detailInfo = { x: '', pixiv: '', website: '', circleText: '' };
+            let detailInfo = {
+                x: '',
+                pixiv: '',
+                website: '',
+                melonbooks: null,
+                booth: null,
+                circleText: ''
+            };
 
             try {
                 if (circleUrl) detailInfo = await fetchCircleDetails(circleUrl);
@@ -316,6 +420,8 @@
                         x: '',
                         pixiv: '',
                         website: '',
+                        melonbooks: null,
+                        booth: null,
                         circleText: ''
                     };
                     if (!resolvedDetails.x) {
