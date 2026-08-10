@@ -280,7 +280,11 @@
     if (path.startsWith('/User/Favorites')) {
         initFavoritesPage();
     } else if (path === '/Print' || path.startsWith('/Print/')) {
-        initPrintPage();
+        if (document.readyState === 'complete') {
+            initPrintPage();
+        } else {
+            window.addEventListener('load', initPrintPage, { once: true });
+        }
     } else if (path.startsWith('/Circle/') && !path.startsWith('/Circle/List')) {
         initCirclePage();
     }
