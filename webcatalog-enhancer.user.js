@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.7.0
+// @version      2.8.0
 // @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -26,6 +26,17 @@
         memoEditButton: 'a.c-btn.c-btn--blue',
         favoriteMemo: 'span[data-bind*="favMemo"]',
         item: 'div.item'
+    };
+
+    const FAVORITE_STORE_BUTTONS = {
+        melonbooks: {
+            label: 'Melonbooks',
+            iconUrl: 'https://docs.circle.ms/parts/comikewebcatalog/onlinebookstore/melonbooks/icon.png'
+        },
+        booth: {
+            label: 'BOOTH',
+            iconUrl: 'https://docs.circle.ms/parts/comikewebcatalog/onlinebookstore/booth/icon.png'
+        }
     };
 
     // 每一天分别保存映射，避免不同日期的摊位配置互相影响。
@@ -187,12 +198,10 @@
 
     function ensureFavoriteStoreLink(supportRow, insertionPoint, storeKey, store) {
         const itemClass = `js-wc-enhancer-store-${storeKey}`;
+        const buttonInfo = FAVORITE_STORE_BUTTONS[storeKey];
         let item = supportRow?.querySelector(`li.${itemClass}`) || null;
 
-        if (!store?.url || !store.iconUrl || !insertionPoint) {
-            item?.remove();
-            return insertionPoint;
-        }
+        if (!buttonInfo || !insertionPoint) return insertionPoint;
 
         if (!item) {
             item = document.createElement('li');
@@ -211,11 +220,29 @@
 
         const link = item.querySelector('a');
         const icon = item.querySelector('img');
-        link.href = store.url;
-        icon.src = store.iconUrl;
-        icon.alt = store.alt;
-        icon.title = store.title;
-        icon.style.cursor = 'pointer';
+        const hasLink = Boolean(store?.url);
+
+        icon.src = store?.iconUrl || buttonInfo.iconUrl;
+        icon.alt = store?.alt || buttonInfo.label;
+        icon.title = store?.title || buttonInfo.label;
+        icon.style.filter = hasLink ? '' : 'grayscale(100%)';
+        icon.style.opacity = hasLink ? '' : '0.45';
+        icon.style.cursor = hasLink ? 'pointer' : 'default';
+        link.style.cursor = hasLink ? 'pointer' : 'default';
+
+        if (hasLink) {
+            link.href = store.url;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.removeAttribute('aria-disabled');
+            link.removeAttribute('tabindex');
+        } else {
+            link.removeAttribute('href');
+            link.removeAttribute('target');
+            link.removeAttribute('rel');
+            link.setAttribute('aria-disabled', 'true');
+            link.tabIndex = -1;
+        }
         return item;
     }
 
@@ -369,10 +396,10 @@
 
         function applyFavoriteDetails(cell, details) {
             const icons = findFavoriteSupportIcons(cell);
+            customizeFavoriteSupportButtons(icons, details);
             overrideIconLink(icons.x, details.x, true);
             overrideIconLink(icons.pixiv, details.pixiv);
             overrideIconLink(icons.website, details.website);
-            customizeFavoriteSupportButtons(icons, details);
 
             const circleLink = findCircleLink(cell);
             if (circleLink && details.circleText &&
@@ -433,6 +460,10 @@
                 }
 
                 cell.dataset.wcEnhancerLinksState = 'loading';
+                customizeFavoriteSupportButtons(findFavoriteSupportIcons(cell), {
+                    melonbooks: null,
+                    booth: null
+                });
                 resolveFavoriteDetails(cell);
             });
         }
