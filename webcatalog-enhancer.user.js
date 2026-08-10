@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.2.0
-// @description  为Comike Web Catalog添加X、Pixiv和FANBOX链接、社团信息复制及CSV导出功能
+// @version      2.3.0
+// @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
 // @supportURL   https://github.com/uyuni-saline/webcatalog-enhancer/issues
@@ -112,12 +112,13 @@
         }
     }
 
-    function normalizeFanboxUrl(url) {
+    function normalizeWebsiteUrl(url) {
+        if (!url || !String(url).trim()) return '';
         try {
             const parsed = new URL(url, location.href);
-            const isFanbox = parsed.hostname === 'fanbox.cc' ||
-                parsed.hostname.endsWith('.fanbox.cc');
-            return parsed.protocol === 'https:' && isFanbox ? parsed.href : '';
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+                ? parsed.href
+                : '';
         } catch (_error) {
             return '';
         }
@@ -171,7 +172,7 @@
                         pixiv: normalizePixivUrl(
                             pixivIcon?.closest('a')?.getAttribute('href') || ''
                         ),
-                        fanbox: normalizeFanboxUrl(
+                        website: normalizeWebsiteUrl(
                             websiteIcon?.closest('a')?.getAttribute('href') || ''
                         )
                     };
@@ -185,62 +186,53 @@
             return request;
         }
 
-        function createFavoriteLinkButton(className, label, url) {
-            const button = document.createElement('a');
-            button.href = url;
-            button.target = '_blank';
-            button.rel = 'noopener noreferrer';
-            button.textContent = label;
-            button.title = url;
-            button.className = `c-btn c-btn--green ${className}`;
-            button.style.marginLeft = '8px';
-            return button;
+        function findFavoriteSupportIcons(cell) {
+            const supportRow = cell.closest('tr')?.nextElementSibling;
+            return {
+                x: supportRow?.querySelector('img.support-list-twitter') || null,
+                pixiv: supportRow?.querySelector('img.support-list-pixiv') || null,
+                website: supportRow?.querySelector('img.support-list-myhome') || null
+            };
         }
 
-        function renderFavoriteLinkButtons(cell, memoEditButton, links) {
-            const definitions = [
-                {
-                    key: 'x',
-                    selector: '.js-wc-enhancer-open-x',
-                    className: 'js-wc-enhancer-open-x',
-                    label: 'X链接'
-                },
-                {
-                    key: 'pixiv',
-                    selector: '.js-wc-enhancer-open-pixiv',
-                    className: 'js-wc-enhancer-open-pixiv',
-                    label: 'Pixiv链接'
-                },
-                {
-                    key: 'fanbox',
-                    selector: '.js-wc-enhancer-open-fanbox',
-                    className: 'js-wc-enhancer-open-fanbox',
-                    label: 'FANBOX链接'
-                }
-            ];
+        function overrideIconLink(icon, url, activateTwitterIcon = false) {
+            if (!icon || !url) return;
 
-            let insertAfter = memoEditButton;
-            definitions.forEach(definition => {
-                let button = cell.querySelector(definition.selector);
-                const url = links[definition.key];
+            icon.dataset.wcEnhancerUrl = url;
+            icon.style.cursor = 'pointer';
 
-                if (!button && url) {
-                    button = createFavoriteLinkButton(
-                        definition.className,
-                        definition.label,
-                        url
+            if (activateTwitterIcon) {
+                const src = icon.getAttribute('src') || '';
+                if (src.includes('img_icon_twitter_off.png')) {
+                    icon.setAttribute(
+                        'src',
+                        src.replace('img_icon_twitter_off.png', 'img_icon_twitter_on.png')
                     );
-                    insertAfter.insertAdjacentElement('afterend', button);
                 }
+            }
 
-                if (button) insertAfter = button;
-            });
+            if (icon.dataset.wcEnhancerHandlerAttached === 'true') return;
+            icon.dataset.wcEnhancerHandlerAttached = 'true';
+            icon.addEventListener('click', event => {
+                const targetUrl = icon.dataset.wcEnhancerUrl;
+                if (!targetUrl) return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                window.open(targetUrl, '_blank', 'noopener,noreferrer');
+            }, true);
         }
 
-        async function resolveFavoriteLinks(cell, memoEditButton) {
+        function applyFavoriteIconLinks(cell, links) {
+            const icons = findFavoriteSupportIcons(cell);
+            overrideIconLink(icons.x, links.x, true);
+            overrideIconLink(icons.pixiv, links.pixiv);
+            overrideIconLink(icons.website, links.website);
+        }
+
+        async function resolveFavoriteLinks(cell) {
             const memo = cell.querySelector(SELECTORS.favoriteMemo);
             const circleUrl = findCircleUrl(cell);
-            let detailLinks = { x: '', pixiv: '', fanbox: '' };
+            let detailLinks = { x: '', pixiv: '', website: '' };
 
             try {
                 if (circleUrl) detailLinks = await fetchDetailLinks(circleUrl);
@@ -248,10 +240,12 @@
                 console.error(`无法读取社团详情页：${circleUrl}`, error);
             }
 
-            renderFavoriteLinkButtons(cell, memoEditButton, {
+            const resolvedLinks = {
                 ...detailLinks,
                 x: detailLinks.x || extractXUrlFromText(memo?.textContent || '')
-            });
+            };
+            cell._wcEnhancerLinks = resolvedLinks;
+            applyFavoriteIconLinks(cell, resolvedLinks);
             cell.dataset.wcEnhancerLinksState = 'done';
         }
 
@@ -263,15 +257,21 @@
 
                 if (cell.dataset.wcEnhancerLinksState === 'loading') return;
                 if (cell.dataset.wcEnhancerLinksState === 'done') {
-                    const memoXUrl = extractXUrlFromText(memo.textContent);
-                    if (memoXUrl && !cell.querySelector('.js-wc-enhancer-open-x')) {
-                        renderFavoriteLinkButtons(cell, memoEditButton, { x: memoXUrl });
+                    const resolvedLinks = cell._wcEnhancerLinks || {
+                        x: '',
+                        pixiv: '',
+                        website: ''
+                    };
+                    if (!resolvedLinks.x) {
+                        resolvedLinks.x = extractXUrlFromText(memo.textContent);
                     }
+                    cell._wcEnhancerLinks = resolvedLinks;
+                    applyFavoriteIconLinks(cell, resolvedLinks);
                     return;
                 }
 
                 cell.dataset.wcEnhancerLinksState = 'loading';
-                resolveFavoriteLinks(cell, memoEditButton);
+                resolveFavoriteLinks(cell);
             });
         }
 
