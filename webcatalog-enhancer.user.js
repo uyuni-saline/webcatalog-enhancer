@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.9.0
+// @version      2.10.0
 // @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -38,6 +38,25 @@
             iconUrl: 'https://docs.circle.ms/parts/comikewebcatalog/onlinebookstore/booth/icon.png'
         }
     };
+
+    const PRINT_DETAIL_BUTTONS = {
+        pixiv: {
+            label: 'Pixiv',
+            iconUrl: 'https://classic-webcatalog.circle.ms/common/images/common/img_icon_pixiv_on.png'
+        },
+        x: {
+            label: 'X(Twitter)',
+            iconUrl: 'https://classic-webcatalog.circle.ms/common/images/common/img_icon_twitter_on.png'
+        },
+        website: {
+            label: '主页',
+            iconUrl: 'https://classic-webcatalog.circle.ms/common/images/common/img_icon_myhome_on.png'
+        },
+        melonbooks: FAVORITE_STORE_BUTTONS.melonbooks,
+        booth: FAVORITE_STORE_BUTTONS.booth
+    };
+
+    const circleDetailRequests = new Map();
 
     // 每一天分别保存映射，避免不同日期的摊位配置互相影响。
     const HALL_MAPPINGS = {
@@ -101,13 +120,14 @@
         });
     }
 
-    function createCopyPanel(text) {
+    function createCopyPanel(text, options = {}) {
+        const { boxed = true, showFeedback = true } = options;
         const panel = document.createElement('div');
         panel.className = 'wc-enhancer-copy-panel';
-        panel.style.backgroundColor = 'white';
-        panel.style.padding = '10px';
-        panel.style.border = '1px solid black';
-        panel.style.margin = '10px 0';
+        panel.style.backgroundColor = boxed ? 'white' : 'transparent';
+        panel.style.padding = boxed ? '10px' : '0';
+        panel.style.border = boxed ? '1px solid black' : 'none';
+        panel.style.margin = boxed ? '10px 0' : '0';
         panel.style.cursor = 'pointer';
         panel.title = '点击复制';
         panel.textContent = text;
@@ -115,6 +135,7 @@
         panel.addEventListener('click', () => {
             copyToClipboard(text)
                 .then(() => {
+                    if (!showFeedback) return;
                     panel.textContent = `${text} 已复制`;
                     window.setTimeout(() => {
                         panel.textContent = text;
@@ -238,6 +259,68 @@
         };
     }
 
+    function fetchCircleDetails(circleUrl) {
+        if (circleDetailRequests.has(circleUrl)) {
+            return circleDetailRequests.get(circleUrl);
+        }
+
+        const request = fetch(circleUrl, { credentials: 'same-origin' })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.text();
+            })
+            .then(html => {
+                const detailDocument = new DOMParser().parseFromString(html, 'text/html');
+                const xIcon = detailDocument.querySelector(
+                    'img[alt="X(Twitter)"][src*="img_icon_twitter_on.png"]'
+                );
+                const pixivIcon = detailDocument.querySelector(
+                    'img[alt="pixiv"][src*="img_icon_pixiv_on.png"]'
+                );
+                const websiteIcon = detailDocument.querySelector(
+                    'img[src*="img_icon_myhome_on.png"]'
+                );
+                const circleInfo = extractCircleInfo(detailDocument);
+                const melonbooks = extractLinkedIcon(
+                    detailDocument,
+                    'onlinebookstore/melonbooks/icon.png',
+                    circleUrl,
+                    'Melonbooks'
+                );
+                const booth = extractLinkedIcon(
+                    detailDocument,
+                    'onlinebookstore/booth/icon.png',
+                    circleUrl,
+                    'BOOTH'
+                );
+
+                return {
+                    x: normalizeXUrl(
+                        xIcon?.closest('a')?.getAttribute('href') || ''
+                    ),
+                    pixiv: normalizePixivUrl(
+                        pixivIcon?.closest('a')?.getAttribute('href') || ''
+                    ),
+                    website: normalizeWebsiteUrl(
+                        websiteIcon?.closest('a')?.getAttribute('href') || '',
+                        circleUrl
+                    ),
+                    melonbooks,
+                    booth,
+                    circleText: circleInfo.hasPlacement ? circleInfo.spaceInfo : ''
+                };
+            })
+            .catch(error => {
+                circleDetailRequests.delete(circleUrl);
+                throw error;
+            });
+
+        circleDetailRequests.set(circleUrl, request);
+        return request;
+    }
+
     function removeFavoriteIconButton(icon) {
         if (!icon) return;
         const item = icon.closest('li');
@@ -319,7 +402,6 @@
 
     function initFavoritesPage() {
         let updateScheduled = false;
-        const detailRequests = new Map();
 
         function findCircleLink(cell) {
             let row = cell.closest('tr')?.previousElementSibling;
@@ -331,68 +413,6 @@
             return row?.querySelector(
                 'td.infotable-circlename a[href*="/Circle/"]'
             ) || null;
-        }
-
-        function fetchCircleDetails(circleUrl) {
-            if (detailRequests.has(circleUrl)) {
-                return detailRequests.get(circleUrl);
-            }
-
-            const request = fetch(circleUrl, { credentials: 'same-origin' })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-                    return response.text();
-                })
-                .then(html => {
-                    const detailDocument = new DOMParser().parseFromString(html, 'text/html');
-                    const xIcon = detailDocument.querySelector(
-                        'img[alt="X(Twitter)"][src*="img_icon_twitter_on.png"]'
-                    );
-                    const pixivIcon = detailDocument.querySelector(
-                        'img[alt="pixiv"][src*="img_icon_pixiv_on.png"]'
-                    );
-                    const websiteIcon = detailDocument.querySelector(
-                        'img[src*="img_icon_myhome_on.png"]'
-                    );
-                    const circleInfo = extractCircleInfo(detailDocument);
-                    const melonbooks = extractLinkedIcon(
-                        detailDocument,
-                        'onlinebookstore/melonbooks/icon.png',
-                        circleUrl,
-                        'Melonbooks'
-                    );
-                    const booth = extractLinkedIcon(
-                        detailDocument,
-                        'onlinebookstore/booth/icon.png',
-                        circleUrl,
-                        'BOOTH'
-                    );
-
-                    return {
-                        x: normalizeXUrl(
-                            xIcon?.closest('a')?.getAttribute('href') || ''
-                        ),
-                        pixiv: normalizePixivUrl(
-                            pixivIcon?.closest('a')?.getAttribute('href') || ''
-                        ),
-                        website: normalizeWebsiteUrl(
-                            websiteIcon?.closest('a')?.getAttribute('href') || '',
-                            circleUrl
-                        ),
-                        melonbooks,
-                        booth,
-                        circleText: circleInfo.hasPlacement ? circleInfo.spaceInfo : ''
-                    };
-                })
-                .catch(error => {
-                    detailRequests.delete(circleUrl);
-                    throw error;
-                });
-
-            detailRequests.set(circleUrl, request);
-            return request;
         }
 
         function findFavoriteSupportIcons(cell) {
@@ -646,12 +666,85 @@
         target.appendChild(container);
     }
 
+    function renderPrintDetailButtons(memoCell, details = {}) {
+        if (!memoCell) return;
+
+        let container = memoCell.querySelector('.js-wc-enhancer-print-links');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'js-wc-enhancer-print-links';
+            Object.assign(container.style, {
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginTop: '4px'
+            });
+            memoCell.appendChild(container);
+        }
+
+        Object.entries(PRINT_DETAIL_BUTTONS).forEach(([key, buttonInfo]) => {
+            const detail = details[key];
+            const url = typeof detail === 'string' ? detail : detail?.url || '';
+            const iconUrl = typeof detail === 'object' && detail?.iconUrl
+                ? detail.iconUrl
+                : buttonInfo.iconUrl;
+            const label = typeof detail === 'object' && detail?.alt
+                ? detail.alt
+                : buttonInfo.label;
+            const linkClass = `js-wc-enhancer-print-link-${key}`;
+            let link = container.querySelector(`a.${linkClass}`);
+
+            if (!link) {
+                link = document.createElement('a');
+                link.className = `js-wc-enhancer-print-link ${linkClass}`;
+                Object.assign(link.style, {
+                    display: 'inline-flex',
+                    lineHeight: '0'
+                });
+
+                const icon = document.createElement('img');
+                Object.assign(icon.style, {
+                    width: '20px',
+                    height: '20px',
+                    objectFit: 'contain'
+                });
+                link.appendChild(icon);
+                container.appendChild(link);
+            }
+
+            const icon = link.querySelector('img');
+            icon.src = iconUrl;
+            icon.alt = label;
+            icon.title = url ? label : `${label}（无链接）`;
+            icon.style.filter = url ? '' : 'grayscale(100%)';
+            icon.style.opacity = url ? '' : '0.45';
+            icon.style.cursor = url ? 'pointer' : 'default';
+            link.style.cursor = url ? 'pointer' : 'default';
+            link.setAttribute('aria-label', icon.title);
+
+            if (url) {
+                link.href = url;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.removeAttribute('aria-disabled');
+                link.removeAttribute('tabindex');
+            } else {
+                link.removeAttribute('href');
+                link.removeAttribute('target');
+                link.removeAttribute('rel');
+                link.setAttribute('aria-disabled', 'true');
+                link.tabIndex = -1;
+            }
+        });
+    }
+
     function extractPrintRow(cell) {
         const placement = cell.querySelector('span.h-text--bold.h-text--center');
         if (!placement) return null;
 
         const row = cell.closest('tr');
-        const memo = row?.querySelector('td.table-column-memo')?.innerText.trim() || '';
+        const memoCell = row?.querySelector('td.table-column-memo') || null;
+        const memo = memoCell?.innerText.trim() || '';
         const colorCell = row?.querySelector('td.c-block--large');
         const colorClass = colorCell?.className.match(/favorite-(color-\d+)/)?.[1] || '';
         const circleAnchor = row?.querySelector('a[href^="/Circle/"]');
@@ -676,7 +769,10 @@
 
         return {
             values: [textLine, dateSpace, circleName, author, memo, colorClass, circleLink],
-            textLine
+            textLine,
+            memo,
+            memoCell,
+            circleLink
         };
     }
 
@@ -715,7 +811,26 @@
             if (!extracted) return;
 
             collectedRows.push(extracted.values);
-            cell.replaceChildren(createCopyPanel(extracted.textLine));
+            const memoXUrl = extractXUrlFromText(extracted.memo);
+            renderPrintDetailButtons(extracted.memoCell, { x: memoXUrl });
+
+            if (extracted.circleLink) {
+                fetchCircleDetails(extracted.circleLink)
+                    .then(details => {
+                        renderPrintDetailButtons(extracted.memoCell, {
+                            ...details,
+                            x: details.x || memoXUrl
+                        });
+                    })
+                    .catch(error => {
+                        console.error(`无法读取社团详情页：${extracted.circleLink}`, error);
+                    });
+            }
+
+            cell.replaceChildren(createCopyPanel(extracted.textLine, {
+                boxed: false,
+                showFeedback: false
+            }));
         });
 
         const exportButton = document.createElement('button');
