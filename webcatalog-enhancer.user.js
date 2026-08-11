@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.10.0
+// @version      2.11.0
 // @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -55,6 +55,8 @@
         melonbooks: FAVORITE_STORE_BUTTONS.melonbooks,
         booth: FAVORITE_STORE_BUTTONS.booth
     };
+
+    const PRINT_DETAIL_LINK_KEYS = ['pixiv', 'x', 'website', 'melonbooks', 'booth'];
 
     const circleDetailRequests = new Map();
 
@@ -666,6 +668,17 @@
         target.appendChild(container);
     }
 
+    function getDetailLinkUrl(detail) {
+        return typeof detail === 'string' ? detail : detail?.url || '';
+    }
+
+    function updatePrintCsvLinks(values, details = {}) {
+        const firstLinkColumn = 7;
+        PRINT_DETAIL_LINK_KEYS.forEach((key, index) => {
+            values[firstLinkColumn + index] = getDetailLinkUrl(details[key]);
+        });
+    }
+
     function renderPrintDetailButtons(memoCell, details = {}) {
         if (!memoCell) return;
 
@@ -682,9 +695,10 @@
             memoCell.appendChild(container);
         }
 
-        Object.entries(PRINT_DETAIL_BUTTONS).forEach(([key, buttonInfo]) => {
+        PRINT_DETAIL_LINK_KEYS.forEach(key => {
+            const buttonInfo = PRINT_DETAIL_BUTTONS[key];
             const detail = details[key];
-            const url = typeof detail === 'string' ? detail : detail?.url || '';
+            const url = getDetailLinkUrl(detail);
             const iconUrl = typeof detail === 'object' && detail?.iconUrl
                 ? detail.iconUrl
                 : buttonInfo.iconUrl;
@@ -778,7 +792,20 @@
 
     function buildCsv(rows) {
         const escapeCsv = value => `"${String(value).replace(/"/g, '""')}"`;
-        const header = ['合并', '摊位', '社团', '作者', '备注', '颜色', '社团详情'];
+        const header = [
+            '合并',
+            '摊位',
+            '社团',
+            '作者',
+            '备注',
+            '颜色',
+            '社团详情',
+            'Pixiv',
+            'X',
+            '主页',
+            'Melonbooks',
+            'BOOTH'
+        ];
         return [header, ...rows].map(row => row.map(escapeCsv).join(',')).join('\r\n');
     }
 
@@ -806,25 +833,32 @@
         if (document.querySelector('.js-wc-enhancer-export')) return;
 
         const collectedRows = [];
+        const detailTasks = [];
         document.querySelectorAll('td').forEach(cell => {
             const extracted = extractPrintRow(cell);
             if (!extracted) return;
 
-            collectedRows.push(extracted.values);
             const memoXUrl = extractXUrlFromText(extracted.memo);
-            renderPrintDetailButtons(extracted.memoCell, { x: memoXUrl });
+            const initialDetails = { x: memoXUrl };
+            const csvValues = [...extracted.values, '', '', '', '', ''];
+            collectedRows.push(csvValues);
+            updatePrintCsvLinks(csvValues, initialDetails);
+            renderPrintDetailButtons(extracted.memoCell, initialDetails);
 
             if (extracted.circleLink) {
-                fetchCircleDetails(extracted.circleLink)
+                const detailTask = fetchCircleDetails(extracted.circleLink)
                     .then(details => {
-                        renderPrintDetailButtons(extracted.memoCell, {
+                        const resolvedDetails = {
                             ...details,
                             x: details.x || memoXUrl
-                        });
+                        };
+                        updatePrintCsvLinks(csvValues, resolvedDetails);
+                        renderPrintDetailButtons(extracted.memoCell, resolvedDetails);
                     })
                     .catch(error => {
                         console.error(`无法读取社团详情页：${extracted.circleLink}`, error);
                     });
+                detailTasks.push(detailTask);
             }
 
             cell.replaceChildren(createCopyPanel(extracted.textLine, {
@@ -849,7 +883,19 @@
             borderRadius: '5px',
             cursor: 'pointer'
         });
-        exportButton.addEventListener('click', () => downloadCsv(collectedRows));
+        exportButton.addEventListener('click', async () => {
+            if (exportButton.disabled) return;
+
+            exportButton.disabled = true;
+            exportButton.textContent = '整理CSV…';
+            try {
+                await Promise.allSettled(detailTasks);
+                downloadCsv(collectedRows);
+            } finally {
+                exportButton.disabled = false;
+                exportButton.textContent = '导出CSV';
+            }
+        });
         document.body.appendChild(exportButton);
     }
 
