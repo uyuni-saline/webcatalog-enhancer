@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.12.0
+// @version      2.13.0
 // @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -238,6 +238,10 @@
     function extractXUrlFromText(text) {
         const match = text.match(/https:\/\/(?:www\.)?(?:x|twitter)\.com\/[^\s]+/i);
         return match ? normalizeXUrl(match[0]) : '';
+    }
+
+    function resolveFavoriteXUrl(memoText, detailXUrl) {
+        return extractXUrlFromText(memoText) || normalizeXUrl(detailXUrl);
     }
 
     function findCircleMemoText(root = document) {
@@ -567,8 +571,9 @@
 
             const resolvedDetails = {
                 ...detailInfo,
-                x: detailInfo.x || extractXUrlFromText(memo?.textContent || '')
+                x: resolveFavoriteXUrl(memo?.textContent || '', detailInfo.x)
             };
+            cell._wcEnhancerDetailInfo = detailInfo;
             cell._wcEnhancerDetails = resolvedDetails;
             applyFavoriteDetails(cell, resolvedDetails);
             cell.dataset.wcEnhancerLinksState = 'done';
@@ -582,7 +587,7 @@
 
                 if (cell.dataset.wcEnhancerLinksState === 'loading') return;
                 if (cell.dataset.wcEnhancerLinksState === 'done') {
-                    const resolvedDetails = cell._wcEnhancerDetails || {
+                    const detailInfo = cell._wcEnhancerDetailInfo || cell._wcEnhancerDetails || {
                         x: '',
                         pixiv: '',
                         website: '',
@@ -590,9 +595,10 @@
                         booth: null,
                         circleText: ''
                     };
-                    if (!resolvedDetails.x) {
-                        resolvedDetails.x = extractXUrlFromText(memo.textContent);
-                    }
+                    const resolvedDetails = {
+                        ...detailInfo,
+                        x: resolveFavoriteXUrl(memo.textContent, detailInfo.x)
+                    };
                     cell._wcEnhancerDetails = resolvedDetails;
                     applyFavoriteDetails(cell, resolvedDetails);
                     return;
