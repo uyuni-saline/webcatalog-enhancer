@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.11.0
+// @version      2.12.0
 // @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -57,6 +57,24 @@
     };
 
     const PRINT_DETAIL_LINK_KEYS = ['pixiv', 'x', 'website', 'melonbooks', 'booth'];
+
+    const ILLEGAL_FILENAME_CHARACTERS = {
+        '\\': '＼',
+        '/': '／',
+        ':': '：',
+        '*': '＊',
+        '?': '？',
+        '"': '＂',
+        '<': '＜',
+        '>': '＞',
+        '|': '｜'
+    };
+
+    const WINDOWS_RESERVED_NAMES = new Set([
+        'CON', 'PRN', 'AUX', 'NUL',
+        ...Array.from({ length: 9 }, (_value, index) => `COM${index + 1}`),
+        ...Array.from({ length: 9 }, (_value, index) => `LPT${index + 1}`)
+    ]);
 
     const circleDetailRequests = new Map();
 
@@ -222,6 +240,44 @@
         return match ? normalizeXUrl(match[0]) : '';
     }
 
+    function findCircleMemoText(root = document) {
+        return root.querySelector(
+            '.m-favorite-control [data-bind*="text: favMemo"]'
+        )?.textContent.trim() || '';
+    }
+
+    function safeFilenameBase(value, maxLength = 180) {
+        const normalized = Array.from(String(value || ''), character => {
+            const codePoint = character.codePointAt(0);
+            if (codePoint >= 0xFF21 && codePoint <= 0xFF3A) {
+                return String.fromCodePoint(codePoint - 0xFEE0);
+            }
+            if (codePoint >= 0xFF41 && codePoint <= 0xFF5A) {
+                return String.fromCodePoint(codePoint - 0xFEE0);
+            }
+            return character;
+        }).join('');
+        let cleaned = Array.from(normalized, character => {
+            if (character.codePointAt(0) < 32) return '';
+            return ILLEGAL_FILENAME_CHARACTERS[character] || character;
+        }).join('');
+
+        cleaned = cleaned.replace(/\s+/gu, ' ').replace(/^[ .]+|[ .]+$/gu, '');
+        if (!cleaned) cleaned = '未命名';
+        if (WINDOWS_RESERVED_NAMES.has(cleaned.toUpperCase())) cleaned = `_${cleaned}`;
+        return Array.from(cleaned).slice(0, maxLength).join('').replace(/[ .]+$/gu, '');
+    }
+
+    function buildCircleAuthor(circleName, authorName) {
+        const original = `[${circleName} (${authorName})]`;
+        const cleaned = safeFilenameBase(original);
+        return {
+            original,
+            cleaned,
+            changed: original !== cleaned
+        };
+    }
+
     function normalizePixivUrl(url) {
         try {
             const parsed = new URL(url, location.href);
@@ -261,6 +317,51 @@
         };
     }
 
+    function overrideIconLink(icon, url, activateTwitterIcon = false) {
+        if (!icon || !url) return;
+
+        const activateIcon = targetIcon => {
+            targetIcon.style.cursor = 'pointer';
+            if (!activateTwitterIcon) return;
+
+            const src = targetIcon.getAttribute('src') || '';
+            if (src.includes('img_icon_twitter_off.png')) {
+                targetIcon.setAttribute(
+                    'src',
+                    src.replace('img_icon_twitter_off.png', 'img_icon_twitter_on.png')
+                );
+            }
+        };
+
+        const existingLink = icon.parentElement?.matches('a.js-wc-enhancer-icon-link')
+            ? icon.parentElement
+            : null;
+        if (existingLink) {
+            existingLink.href = url;
+            activateIcon(icon);
+            return;
+        }
+
+        // 克隆并替换原链接，移除网站原有的Knockout点击监听。
+        const linkedIcon = icon.cloneNode(true);
+        linkedIcon.removeAttribute('data-bind');
+        activateIcon(linkedIcon);
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.className = 'js-wc-enhancer-icon-link';
+
+        const originalLink = icon.parentElement?.matches('a') ? icon.parentElement : null;
+        if (originalLink) {
+            originalLink.replaceWith(link);
+        } else {
+            icon.replaceWith(link);
+        }
+        link.appendChild(linkedIcon);
+    }
+
     function fetchCircleDetails(circleUrl) {
         if (circleDetailRequests.has(circleUrl)) {
             return circleDetailRequests.get(circleUrl);
@@ -276,7 +377,7 @@
             .then(html => {
                 const detailDocument = new DOMParser().parseFromString(html, 'text/html');
                 const xIcon = detailDocument.querySelector(
-                    'img[alt="X(Twitter)"][src*="img_icon_twitter_on.png"]'
+                    'img[alt="X(Twitter)"][src*="img_icon_twitter_"]'
                 );
                 const pixivIcon = detailDocument.querySelector(
                     'img[alt="pixiv"][src*="img_icon_pixiv_on.png"]'
@@ -301,7 +402,7 @@
                 return {
                     x: normalizeXUrl(
                         xIcon?.closest('a')?.getAttribute('href') || ''
-                    ),
+                    ) || extractXUrlFromText(findCircleMemoText(detailDocument)),
                     pixiv: normalizePixivUrl(
                         pixivIcon?.closest('a')?.getAttribute('href') || ''
                     ),
@@ -427,45 +528,6 @@
                 niconico: supportRow?.querySelector('img.support-list-niconico') || null,
                 clipstudio: supportRow?.querySelector('img.support-list-clipstudio') || null
             };
-        }
-
-        function overrideIconLink(icon, url, activateTwitterIcon = false) {
-            if (!icon || !url) return;
-
-            const activateIcon = targetIcon => {
-                targetIcon.style.cursor = 'pointer';
-                if (!activateTwitterIcon) return;
-
-                const src = targetIcon.getAttribute('src') || '';
-                if (src.includes('img_icon_twitter_off.png')) {
-                    targetIcon.setAttribute(
-                        'src',
-                        src.replace('img_icon_twitter_off.png', 'img_icon_twitter_on.png')
-                    );
-                }
-            };
-
-            const existingLink = icon.parentElement?.matches('a.js-wc-enhancer-icon-link')
-                ? icon.parentElement
-                : null;
-            if (existingLink) {
-                existingLink.href = url;
-                activateIcon(icon);
-                return;
-            }
-
-            // 克隆图标以移除网站原有的Knockout点击监听，再使用标准链接包装。
-            const linkedIcon = icon.cloneNode(true);
-            linkedIcon.removeAttribute('data-bind');
-            activateIcon(linkedIcon);
-
-            const link = document.createElement('a');
-            link.href = url;
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-            link.className = 'js-wc-enhancer-icon-link';
-            icon.replaceWith(link);
-            link.appendChild(linkedIcon);
         }
 
         function applyFavoriteDetails(cell, details) {
@@ -639,30 +701,72 @@
         const spaceName = findTableValue('配置スペース', root);
         const authorName = findTableValue('執筆者名', root) || 'NoName';
         const placement = formatPlacement(spaceName);
-        const circleAuthor = `[${circleName} (${authorName})]`;
+        const circleAuthorInfo = buildCircleAuthor(circleName, authorName);
 
         return {
             ...placement,
             circleName,
             authorName,
-            circleAuthor,
+            circleAuthor: circleAuthorInfo.cleaned,
+            originalCircleAuthor: circleAuthorInfo.original,
+            circleAuthorChanged: circleAuthorInfo.changed,
             hasPlacement: Boolean(spaceName),
-            spaceInfo: `${placement.text} ${circleAuthor}`.trim()
+            spaceInfo: `${placement.text} ${circleAuthorInfo.cleaned}`.trim()
         };
+    }
+
+    function createCircleAuthorCopySection(originalText, cleanedText, changed) {
+        if (!changed) return createCopyPanel(cleanedText);
+
+        const comparison = document.createElement('div');
+        comparison.className = 'js-wc-enhancer-circle-author-comparison';
+        Object.assign(comparison.style, {
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '8px'
+        });
+
+        const originalPanel = createCopyPanel(originalText);
+        originalPanel.title = '点击复制清洗前文本';
+        originalPanel.style.marginRight = '0';
+
+        const cleanedPanel = createCopyPanel(cleanedText);
+        cleanedPanel.title = '点击复制清洗后文本';
+        cleanedPanel.style.color = 'red';
+        cleanedPanel.style.marginLeft = '0';
+
+        comparison.appendChild(originalPanel);
+        comparison.appendChild(cleanedPanel);
+        return comparison;
     }
 
     function initCirclePage() {
         const target = document.querySelector(SELECTORS.item);
         if (!target || target.querySelector('.js-wc-enhancer-circle-info')) return;
 
-        const { circleAuthor, spaceInfo } = extractCircleInfo();
+        const {
+            circleAuthor,
+            originalCircleAuthor,
+            circleAuthorChanged,
+            spaceInfo
+        } = extractCircleInfo();
 
         const container = document.createElement('div');
         container.className = 'js-wc-enhancer-circle-info';
         container.appendChild(createCopyPanel(spaceInfo));
+        container.appendChild(createCircleAuthorCopySection(
+            originalCircleAuthor,
+            circleAuthor,
+            circleAuthorChanged
+        ));
 
-        const twitterIcon = document.querySelector('img[src*="img_icon_twitter_on.png"]');
-        const twitterUrl = normalizeXUrl(twitterIcon?.closest('a')?.href || '');
+        const twitterIcon = document.querySelector(
+            'img[alt="X(Twitter)"][src*="img_icon_twitter_"]'
+        );
+        const twitterUrl = normalizeXUrl(
+            twitterIcon?.closest('a')?.getAttribute('href') || ''
+        ) || extractXUrlFromText(findCircleMemoText());
+        overrideIconLink(twitterIcon, twitterUrl, true);
         const twitterInfo = `${twitterUrl || 'NoLink'} ${circleAuthor}`;
         container.appendChild(createCopyPanel(twitterInfo));
         target.appendChild(container);
@@ -779,7 +883,8 @@
         const dateSpace = formatPlacement(dayLocation).text;
         const circleName = decodeHtml(contentLines[1]) || '？';
         const author = decodeHtml(contentLines[3]) || '？';
-        const textLine = `${dateSpace} [${circleName} (${author})]`;
+        const circleAuthor = buildCircleAuthor(circleName, author).cleaned;
+        const textLine = `${dateSpace} ${circleAuthor}`;
 
         return {
             values: [textLine, dateSpace, circleName, author, memo, colorClass, circleLink],
