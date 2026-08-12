@@ -17,6 +17,7 @@ This repository contains a lightweight Tampermonkey userscript for Comike Web Ca
 - Increase the metadata `@version` whenever publishing a functional change.
 - Keep page-specific behavior separated by URL path: favorites, circle details, and print pages.
 - Reuse `fetchCircleDetails()` for data extracted from circle detail pages and keep its request cache intact.
+- On the favorites page, an X/Twitter URL extracted from the favorite memo has priority over the detail-page URL. Keep the unmodified detail result separately so removing the memo URL can fall back to it again.
 - Reuse `safeFilenameBase()` and `buildCircleAuthor()` whenever constructing `[circle (author)]` text. Never apply filename cleaning to the date, region, hall, booth letter, booth number, or a/b side marker.
 - Keep the filename-cleaning behavior aligned with the reference Python logic: normalize full-width Latin letters, replace Windows-invalid characters with full-width equivalents, remove controls, collapse whitespace, trim trailing dots/spaces, handle reserved names, and enforce the 180-character limit.
 - Keep `PRINT_DETAIL_LINK_KEYS`, print-page icon order, and CSV link-column order synchronized: Pixiv, X, website, Melonbooks, BOOTH.
@@ -31,5 +32,6 @@ This repository contains a lightweight Tampermonkey userscript for Comike Web Ca
 - Test print-page link rendering with both complete and missing detail links.
 - Test filename cleaning independently and verify that placement text is unchanged.
 - Test detail-page X fallback with an off icon and a link contained only in the favorite memo.
+- Test favorites-page X priority in both directions: memo overrides detail, and removing the memo URL restores the detail URL.
 - Verify that CSV output has the same number and order of fields as its header.
 - Confirm that repeated asynchronous rendering does not duplicate icon buttons.
