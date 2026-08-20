@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Comike Web Catalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.13.0
+// @version      2.14.0
 // @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -169,56 +169,75 @@
         return panel;
     }
 
-    function ensureFavoriteCircleCopyButton(circleLink) {
+    function ensureFavoriteCopyButtons(circleLink, details = {}) {
         const parent = circleLink?.parentElement;
         if (!parent) return null;
 
-        let button = parent.querySelector('button.js-wc-enhancer-copy-circle-link');
-        if (!button) {
-            button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'js-wc-enhancer-copy-circle-link';
-            button.textContent = '复制';
-            button.title = '复制社团信息';
-            button.setAttribute('aria-label', '复制社团信息');
-            Object.assign(button.style, {
-                marginLeft: '6px',
-                padding: '1px 6px',
-                fontSize: '12px',
-                lineHeight: '1.4',
-                cursor: 'pointer',
-                verticalAlign: 'middle'
-            });
-
-            button.addEventListener('click', event => {
-                event.preventDefault();
-                event.stopPropagation();
-
-                const text = button._wcEnhancerTextSource?.textContent.trim() || '';
-                if (!text) return;
-
-                copyToClipboard(text)
-                    .then(() => {
-                        button.textContent = '已复制';
-                        if (button._wcEnhancerResetTimer) {
-                            window.clearTimeout(button._wcEnhancerResetTimer);
-                        }
-                        button._wcEnhancerResetTimer = window.setTimeout(() => {
-                            button.textContent = '复制';
-                            button._wcEnhancerResetTimer = null;
-                        }, 1500);
-                    })
-                    .catch(error => {
-                        console.error('无法复制社团信息：', error);
-                    });
-            });
-
-            circleLink.insertAdjacentElement('afterend', button);
+        let container = parent.querySelector('.js-wc-enhancer-favorite-copy-buttons');
+        if (!container) {
+            container = document.createElement('span');
+            container.className = 'js-wc-enhancer-favorite-copy-buttons';
+            circleLink.insertAdjacentElement('afterend', container);
         }
 
-        // 页面动态重绘或链接节点变化时，始终读取最新的显示文本。
-        button._wcEnhancerTextSource = circleLink;
-        return button;
+        const buttonDefinitions = [
+            { key: 'placementText', label: '摊位' },
+            { key: 'circleName', label: '社团' },
+            { key: 'authorName', label: '作者' }
+        ];
+
+        buttonDefinitions.forEach(({ key, label }) => {
+            const buttonClass = `js-wc-enhancer-copy-${key}`;
+            let button = container.querySelector(`button.${buttonClass}`);
+            if (!button) {
+                button = document.createElement('button');
+                button.type = 'button';
+                button.className = buttonClass;
+                button._wcEnhancerLabel = label;
+                Object.assign(button.style, {
+                    marginLeft: key === 'placementText' ? '6px' : '4px',
+                    padding: '1px 6px',
+                    fontSize: '12px',
+                    lineHeight: '1.4',
+                    cursor: 'pointer',
+                    verticalAlign: 'middle'
+                });
+
+                button.addEventListener('click', event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    const text = button._wcEnhancerCopyValue || '';
+                    if (!text) return;
+
+                    copyToClipboard(text)
+                        .then(() => {
+                            button.textContent = '已复制';
+                            if (button._wcEnhancerResetTimer) {
+                                window.clearTimeout(button._wcEnhancerResetTimer);
+                            }
+                            button._wcEnhancerResetTimer = window.setTimeout(() => {
+                                button.textContent = button._wcEnhancerLabel;
+                                button._wcEnhancerResetTimer = null;
+                            }, 1500);
+                        })
+                        .catch(error => {
+                            console.error(`无法复制${label}信息：`, error);
+                        });
+                });
+                container.appendChild(button);
+            }
+
+            const value = details[key] || '';
+            button._wcEnhancerCopyValue = value;
+            if (!button._wcEnhancerResetTimer) button.textContent = label;
+            button.title = value ? `复制${label}：${value}` : `暂无${label}信息`;
+            button.setAttribute('aria-label', button.title);
+            button.disabled = !value;
+            button.style.cursor = value ? 'pointer' : 'default';
+        });
+
+        return container;
     }
 
     function normalizeXUrl(url) {
@@ -416,7 +435,10 @@
                     ),
                     melonbooks,
                     booth,
-                    circleText: circleInfo.hasPlacement ? circleInfo.spaceInfo : ''
+                    circleText: circleInfo.hasPlacement ? circleInfo.spaceInfo : '',
+                    placementText: circleInfo.hasPlacement ? circleInfo.text : '',
+                    circleName: safeFilenameBase(circleInfo.circleName),
+                    authorName: safeFilenameBase(circleInfo.authorName)
                 };
             })
             .catch(error => {
@@ -547,7 +569,7 @@
                     circleLink.textContent.trim() !== details.circleText) {
                     circleLink.textContent = details.circleText;
                 }
-                ensureFavoriteCircleCopyButton(circleLink);
+                ensureFavoriteCopyButtons(circleLink, details);
             }
         }
 
@@ -560,7 +582,10 @@
                 website: '',
                 melonbooks: null,
                 booth: null,
-                circleText: ''
+                circleText: '',
+                placementText: '',
+                circleName: '',
+                authorName: ''
             };
 
             try {
@@ -593,7 +618,10 @@
                         website: '',
                         melonbooks: null,
                         booth: null,
-                        circleText: ''
+                        circleText: '',
+                        placementText: '',
+                        circleName: '',
+                        authorName: ''
                     };
                     const resolvedDetails = {
                         ...detailInfo,
@@ -609,7 +637,7 @@
                     melonbooks: null,
                     booth: null
                 });
-                ensureFavoriteCircleCopyButton(findCircleLink(cell));
+                ensureFavoriteCopyButtons(findCircleLink(cell));
                 resolveFavoriteDetails(cell);
             });
         }
