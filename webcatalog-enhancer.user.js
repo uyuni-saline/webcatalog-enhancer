@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WebCatalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.17.0
+// @version      2.18.0
 // @description  增强Comike及COMITIA Web Catalog的社团信息整理、复制与导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -1050,7 +1050,8 @@
 
     function initComitiaListPage() {
         const table = document.querySelector('#list_table');
-        if (!table) return;
+        const tableContainer = document.querySelector('#list_table_div');
+        if (!table || !tableContainer) return;
 
         const style = document.createElement('style');
         style.textContent = `
@@ -1077,48 +1078,59 @@
             #list_table_div {
                 overflow-x: auto;
             }
-            #list_table {
+            #list_table_div:not(.cut-list-mode) #list_table {
                 table-layout: auto;
             }
-            #list_table .list-no,
-            #list_table .list-sel,
-            #list_table .list-vst,
-            #list_table .list-sp,
-            #list_table .list-link,
-            #list_table .list-genre {
+            #list_table_div:not(.cut-list-mode) #list_table .list-no,
+            #list_table_div:not(.cut-list-mode) #list_table .list-sel,
+            #list_table_div:not(.cut-list-mode) #list_table .list-vst,
+            #list_table_div:not(.cut-list-mode) #list_table .list-sp,
+            #list_table_div:not(.cut-list-mode) #list_table .list-link,
+            #list_table_div:not(.cut-list-mode) #list_table .list-genre,
+            #list_table_div:not(.cut-list-mode) #list_table .list-name,
+            #list_table_div:not(.cut-list-mode) #list_table .wc-comitia-author {
                 width: 1%;
                 white-space: nowrap;
             }
-            #list_table .list-pri {
+            #list_table_div:not(.cut-list-mode) #list_table .list-pri {
                 max-width: 2rem;
                 min-width: 2rem;
                 width: 2rem;
             }
-            #list_table .list-sp {
+            #list_table_div:not(.cut-list-mode) #list_table .list-sp {
                 min-width: 5.75rem;
             }
-            #list_table .list-name {
-                max-width: 0;
-                min-width: 6rem;
-                width: 30%;
-            }
-            #list_table td.list-name > a {
+            #list_table_div:not(.cut-list-mode) #list_table td.list-name > a,
+            #list_table_div:not(.cut-list-mode) #list_table .wc-comitia-author-text {
                 display: block;
+                max-width: 14rem;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
-            #list_table .list-info {
-                display: table-cell;
+            #list_table_div:not(.cut-list-mode) #list_table th.max-layout-only,
+            #list_table_div:not(.cut-list-mode) #list_table td.max-layout-only,
+            #list_table_div:not(.cut-list-mode) #list_table th.desktop-only,
+            #list_table_div:not(.cut-list-mode) #list_table td.desktop-only,
+            #list_table_div:not(.cut-list-mode) #list_table th.mobile-hide {
+                display: table-cell !important;
+            }
+            #list_table_div:not(.cut-list-mode) #list_table th.list-info:not(.cut-list-view),
+            #list_table_div:not(.cut-list-mode) #list_table td.list-info {
+                display: table-cell !important;
                 min-width: 12rem;
+            }
+            #list_table_div:not(.cut-list-mode) #list_table .cut-list-view,
+            #list_table_div:not(.cut-list-mode) #list_table td.list-cut {
+                display: none !important;
             }
             #list_table .wc-comitia-copy-button {
                 appearance: none;
-                background: #3273dc;
-                border: 1px solid #3273dc;
+                background: white;
+                border: 1px solid #b5b5b5;
                 border-radius: 3px;
                 box-shadow: 0 1px 2px rgb(0 0 0 / 15%);
-                color: white;
+                color: #222;
                 cursor: pointer;
                 font-size: 0.75rem;
                 line-height: 1.4;
@@ -1127,38 +1139,37 @@
                 white-space: nowrap;
             }
             #list_table .wc-comitia-copy-button:hover {
-                background: #2366d1;
+                background: #f2f2f2;
             }
             #list_table .wc-comitia-copy-button:focus-visible {
-                outline: 2px solid #3273dc;
+                outline: 2px solid #222;
                 outline-offset: 1px;
             }
         `;
         document.head.appendChild(style);
 
-        function ensureHeader() {
+        function ensureListHeader() {
             const headerRow = table.querySelector('tr.circle-root:not(.list-row)');
             const nameHeader = headerRow?.querySelector('th.list-name');
             if (!nameHeader) return;
 
-            headerRow.querySelector('th.wc-comitia-author')?.remove();
-            if (nameHeader.textContent !== 'サークル（作者）') {
-                nameHeader.textContent = 'サークル（作者）';
+            if (nameHeader.textContent !== 'サークル名') {
+                nameHeader.textContent = 'サークル名';
             }
-            headerRow.querySelectorAll('.max-layout-only, .desktop-only, .mobile-hide')
-                .forEach(cell => cell.classList.remove(
-                    'max-layout-only',
-                    'desktop-only',
-                    'mobile-hide'
-                ));
+            if (headerRow.querySelector('th.wc-comitia-author')) return;
+
+            const authorHeader = document.createElement('th');
+            authorHeader.className = 'wc-comitia-author cut-list-hide';
+            authorHeader.textContent = '作者';
+            nameHeader.insertAdjacentElement('afterend', authorHeader);
         }
 
-        function ensureCopyButton(row, spaceCell, placement, copyText) {
-            let button = spaceCell.querySelector('.wc-comitia-copy-button');
+        function ensureCopyButton(container, className) {
+            let button = container.querySelector(`.${className}`);
             if (!button) {
                 button = document.createElement('button');
                 button.type = 'button';
-                button.className = 'wc-comitia-copy-button';
+                button.className = `wc-comitia-copy-button ${className}`;
                 button.addEventListener('click', event => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1169,14 +1180,12 @@
                         console.error('无法复制COMITIA社团信息：', error);
                     });
                 });
-                spaceCell.appendChild(button);
+                container.appendChild(button);
             }
+            return button;
+        }
 
-            Array.from(spaceCell.childNodes)
-                .filter(node => node.nodeType === Node.TEXT_NODE)
-                .forEach(node => node.remove());
-            button.className = 'wc-comitia-copy-button';
-            const buttonText = `${placement}📋`;
+        function configureCopyButton(button, buttonText, copyText) {
             if (button.textContent !== buttonText) {
                 button.textContent = buttonText;
             }
@@ -1184,57 +1193,107 @@
             button.title = `复制：${copyText}`;
             button.setAttribute('aria-label', button.title);
             button.disabled = !copyText;
+        }
+
+        function ensureListCopyButton(row, spaceCell, placement, copyText) {
+            const button = ensureCopyButton(
+                spaceCell,
+                'wc-comitia-list-copy-button'
+            );
+            Array.from(spaceCell.childNodes)
+                .filter(node => node.nodeType === Node.TEXT_NODE)
+                .forEach(node => node.remove());
+            configureCopyButton(button, `${placement}📋`, copyText);
             spaceCell.dataset.wcEnhancerPlacement = placement;
             row.dataset.wcEnhancerCopyText = copyText;
         }
 
-        function enhanceRow(row) {
+        function readRowInfo(row) {
             const spaceCell = row.querySelector('td.list-sp');
             const nameCell = row.querySelector('td.list-name');
-            if (!spaceCell || !nameCell) return;
-
-            row.querySelector('td.wc-comitia-author')?.remove();
-            row.querySelectorAll('.max-layout-only, .desktop-only, .mobile-hide')
-                .forEach(cell => cell.classList.remove(
-                    'max-layout-only',
-                    'desktop-only',
-                    'mobile-hide'
-                ));
+            if (!spaceCell || !nameCell) return null;
 
             const placement = readDirectText(spaceCell) ||
                 spaceCell.dataset.wcEnhancerPlacement || '';
             const nameElement = nameCell.querySelector('.circle-chk-name');
-            if (!nameElement) return;
+            if (!nameElement) return null;
 
             const authorName = row.querySelector('.list-info .circle-chk-pn')?.textContent.trim() || '';
-            const currentName = nameElement.textContent.trim();
-            const lastCombinedName = nameElement.dataset.wcEnhancerCombinedName || '';
-            if (!nameElement.dataset.wcEnhancerCircleName ||
-                (lastCombinedName && currentName !== lastCombinedName)) {
-                nameElement.dataset.wcEnhancerCircleName = currentName;
+            const circleName = nameElement.dataset.wcEnhancerCircleName ||
+                nameElement.textContent.trim();
+            if (nameElement.textContent.trim() !== circleName) {
+                nameElement.textContent = circleName;
             }
-            const circleName = nameElement.dataset.wcEnhancerCircleName || currentName;
-            const combinedName = authorName ? `${circleName} (${authorName})` : circleName;
-
-            if (nameElement.textContent !== combinedName) {
-                nameElement.textContent = combinedName;
-            }
-            nameElement.dataset.wcEnhancerCombinedName = combinedName;
-            nameCell.title = combinedName;
+            delete nameElement.dataset.wcEnhancerCircleName;
+            delete nameElement.dataset.wcEnhancerCombinedName;
+            nameCell.title = circleName;
 
             const circleAuthor = buildCircleAuthor(circleName, authorName).cleaned;
-            ensureCopyButton(
-                row,
-                spaceCell,
+            return {
+                authorName,
+                circleName,
+                copyText: placement ? `${placement} ${circleAuthor}` : circleAuthor,
+                nameCell,
                 placement,
-                placement ? `${placement} ${circleAuthor}` : circleAuthor
+                spaceCell
+            };
+        }
+
+        function enhanceListRow(row, info) {
+            let authorCell = row.querySelector('td.wc-comitia-author');
+            if (!authorCell) {
+                authorCell = document.createElement('td');
+                authorCell.className = 'wc-comitia-author cut-list-hide';
+                info.nameCell.insertAdjacentElement('afterend', authorCell);
+            }
+            let authorText = authorCell.querySelector('.wc-comitia-author-text');
+            if (!authorText) {
+                authorText = document.createElement('span');
+                authorText.className = 'wc-comitia-author-text';
+                authorCell.appendChild(authorText);
+            }
+            if (authorText.textContent !== info.authorName) {
+                authorText.textContent = info.authorName;
+            }
+            authorCell.title = info.authorName;
+
+            ensureListCopyButton(
+                row,
+                info.spaceCell,
+                info.placement,
+                info.copyText
             );
+        }
+
+        function enhanceCutRow(row, info) {
+            const linkRow = Array.from(
+                row.querySelectorAll('.list-info .cut-info-row')
+            ).find(candidate => candidate.querySelector('.cut-info-label')
+                ?.textContent.trim() === 'リンク');
+            const buttonGroup = linkRow?.querySelector('.btn-group');
+            if (!buttonGroup) return;
+
+            const button = ensureCopyButton(
+                buttonGroup,
+                'wc-comitia-cut-copy-button'
+            );
+            configureCopyButton(button, '📋', info.copyText);
+            row.dataset.wcEnhancerCopyText = info.copyText;
         }
 
         let updateScheduled = false;
         function enhanceList() {
-            ensureHeader();
-            table.querySelectorAll('tr.circle-root.list-row').forEach(enhanceRow);
+            const cutMode = tableContainer.classList.contains('cut-list-mode');
+            if (!cutMode) ensureListHeader();
+            table.querySelectorAll('tr.circle-root.list-row').forEach(row => {
+                const info = readRowInfo(row);
+                if (!info) return;
+                if (cutMode) {
+                    enhanceCutRow(row, info);
+                } else {
+                    enhanceListRow(row, info);
+                }
+            });
         }
         function scheduleUpdate() {
             if (updateScheduled) return;
@@ -1250,6 +1309,10 @@
             childList: true,
             subtree: true,
             characterData: true
+        });
+        new MutationObserver(scheduleUpdate).observe(tableContainer, {
+            attributes: true,
+            attributeFilter: ['class']
         });
     }
 
