@@ -2,7 +2,7 @@
 
 ## Project overview
 
-This repository contains a lightweight Tampermonkey userscript for Comike Web Catalog. The implementation is intentionally kept in one directly installable file without a build step.
+This repository contains a lightweight Tampermonkey userscript for Comike and COMITIA Web Catalog. The implementation is intentionally kept in one directly installable file without a build step.
 
 ## Repository layout
 
@@ -15,7 +15,7 @@ This repository contains a lightweight Tampermonkey userscript for Comike Web Ca
 - Keep all runtime code in `webcatalog-enhancer.user.js` unless a build process is deliberately introduced.
 - Preserve the `@updateURL` and `@downloadURL` values so installed scripts continue receiving updates from `main`.
 - Increase the metadata `@version` whenever publishing a functional change.
-- Keep page-specific behavior separated by URL path: favorites, circle details, and print pages.
+- Keep page-specific behavior separated by hostname and URL path: Comike favorites, circle details, print pages, and the COMITIA list page.
 - Reuse `fetchCircleDetails()` for data extracted from circle detail pages and keep its request cache intact.
 - On the favorites page, an X/Twitter URL extracted from the favorite memo has priority over the detail-page URL. Keep the unmodified detail result separately so removing the memo URL can fall back to it again.
 - Keep the favorites-page copy buttons synchronized with detail data: `摊位` copies placement only, `社团` copies the cleaned circle name, and `作者` copies the cleaned author name.
@@ -24,6 +24,8 @@ This repository contains a lightweight Tampermonkey userscript for Comike Web Ca
 - Keep `PRINT_DETAIL_LINK_KEYS`, print-page icon order, and CSV link-column order synchronized: Pixiv, X, website, Melonbooks, BOOTH.
 - Print-page CSV rows are updated asynchronously. Export must wait for all collected detail requests before generating the file.
 - Preserve original full-width booth letters and a/b side markers when changing hall mappings.
+- On the COMITIA list page, read the author from each row's `.circle-chk-pn`, keep the placement text unchanged, and reuse `buildCircleAuthor()` for the copied `placement [circle (author)]` value.
+- Keep COMITIA list enhancements idempotent because the site can redraw rows dynamically.
 - Keep README content user-oriented; place implementation and release instructions here instead.
 - Publish approved lightweight changes directly to the `main` branch.
 
@@ -37,3 +39,4 @@ This repository contains a lightweight Tampermonkey userscript for Comike Web Ca
 - Test all three favorites-page copy buttons, including disabled placeholders before detail data arrives and idempotent re-rendering.
 - Verify that CSV output has the same number and order of fields as its header.
 - Confirm that repeated asynchronous rendering does not duplicate icon buttons.
+- Test the COMITIA example `う37a / 白いふわふわ / 花睡ささみ`, including the author column, copied text, and repeated row rendering.
