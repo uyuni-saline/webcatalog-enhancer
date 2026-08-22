@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Comike Web Catalog Enhancer
+// @name         WebCatalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.14.0
-// @description  增强Comike Web Catalog的社交链接、社团信息复制及CSV导出功能
+// @version      2.15.0
+// @description  增强Comike及COMITIA Web Catalog的社团信息整理、复制与导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
 // @supportURL   https://github.com/uyuni-saline/webcatalog-enhancer/issues
@@ -12,6 +12,7 @@
 // @match        https://classic-webcatalog.circle.ms/Circle/*
 // @match        https://classic-webcatalog-free.circle.ms/Circle/*
 // @match        https://classic-webcatalog.circle.ms/Print*
+// @match        https://comitia-webcatalog.net/list*
 // @exclude      https://classic-webcatalog.circle.ms/Circle/List*
 // @exclude      https://classic-webcatalog-free.circle.ms/Circle/List*
 // @run-at       document-idle
@@ -1038,8 +1039,140 @@
         document.body.appendChild(exportButton);
     }
 
+    function readDirectText(element) {
+        if (!element) return '';
+        return Array.from(element.childNodes)
+            .filter(node => node.nodeType === Node.TEXT_NODE)
+            .map(node => node.textContent)
+            .join('')
+            .trim();
+    }
+
+    function initComitiaListPage() {
+        const table = document.querySelector('#list_table');
+        if (!table) return;
+
+        const style = document.createElement('style');
+        style.textContent = `
+            @media screen and (min-width: 769px) {
+                body .container.main-container {
+                    max-width: 1800px;
+                    width: calc(100% - 2rem);
+                }
+            }
+            #list_table_div {
+                overflow-x: auto;
+            }
+            #list_table .list-sp {
+                width: 8rem;
+            }
+            #list_table .wc-comitia-author {
+                text-align: left;
+                width: 10rem;
+            }
+            #list_table .wc-comitia-copy-button {
+                font-size: 0.7rem;
+                margin-left: 0.4rem;
+                padding-left: 0.45rem;
+                padding-right: 0.45rem;
+                vertical-align: middle;
+            }
+            @media screen and (max-width: 768px) {
+                #list_table {
+                    min-width: 52rem;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+
+        function ensureHeader() {
+            const headerRow = table.querySelector('tr.circle-root:not(.list-row)');
+            const nameHeader = headerRow?.querySelector('th.list-name');
+            if (!nameHeader || headerRow.querySelector('.wc-comitia-author')) return;
+
+            const authorHeader = document.createElement('th');
+            authorHeader.className = 'wc-comitia-author cut-list-hide';
+            authorHeader.textContent = '作者';
+            nameHeader.insertAdjacentElement('afterend', authorHeader);
+        }
+
+        function ensureCopyButton(row, spaceCell, copyText) {
+            let button = spaceCell.querySelector('.wc-comitia-copy-button');
+            if (!button) {
+                button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'wc-comitia-copy-button button is-small is-info';
+                button.textContent = '复制';
+                button.addEventListener('click', event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    const value = button._wcEnhancerCopyValue || '';
+                    if (!value) return;
+                    copyToClipboard(value).catch(error => {
+                        console.error('无法复制COMITIA社团信息：', error);
+                    });
+                });
+                spaceCell.appendChild(button);
+            }
+
+            button._wcEnhancerCopyValue = copyText;
+            button.title = `复制：${copyText}`;
+            button.setAttribute('aria-label', button.title);
+            button.disabled = !copyText;
+            row.dataset.wcEnhancerCopyText = copyText;
+        }
+
+        function enhanceRow(row) {
+            const spaceCell = row.querySelector('td.list-sp');
+            const nameCell = row.querySelector('td.list-name');
+            if (!spaceCell || !nameCell) return;
+
+            const placement = readDirectText(spaceCell);
+            const circleName = nameCell.querySelector('.circle-chk-name')?.textContent.trim() || '';
+            const authorName = row.querySelector('.list-info .circle-chk-pn')?.textContent.trim() || '';
+
+            let authorCell = row.querySelector('td.wc-comitia-author');
+            if (!authorCell) {
+                authorCell = document.createElement('td');
+                authorCell.className = 'wc-comitia-author cut-list-hide';
+                nameCell.insertAdjacentElement('afterend', authorCell);
+            }
+            if (authorCell.textContent !== authorName) {
+                authorCell.textContent = authorName;
+            }
+
+            const circleAuthor = buildCircleAuthor(circleName, authorName).cleaned;
+            ensureCopyButton(row, spaceCell, placement ? `${placement} ${circleAuthor}` : circleAuthor);
+        }
+
+        let updateScheduled = false;
+        function enhanceList() {
+            ensureHeader();
+            table.querySelectorAll('tr.circle-root.list-row').forEach(enhanceRow);
+        }
+        function scheduleUpdate() {
+            if (updateScheduled) return;
+            updateScheduled = true;
+            window.requestAnimationFrame(() => {
+                updateScheduled = false;
+                enhanceList();
+            });
+        }
+
+        enhanceList();
+        new MutationObserver(scheduleUpdate).observe(table, {
+            childList: true,
+            subtree: true,
+            characterData: true
+        });
+    }
+
     const path = location.pathname;
-    if (path.startsWith('/User/Favorites')) {
+    if (location.hostname === 'comitia-webcatalog.net' &&
+        (path === '/list' || path.startsWith('/list/'))) {
+        initComitiaListPage();
+    } else if (path.startsWith('/User/Favorites')) {
         initFavoritesPage();
     } else if (path === '/Print' || path.startsWith('/Print/')) {
         if (document.readyState === 'complete') {
