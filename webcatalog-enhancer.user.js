@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WebCatalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.16.0
+// @version      2.17.0
 // @description  增强Comike及COMITIA Web Catalog的社团信息整理、复制与导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -1059,12 +1059,18 @@
             body .modal-ad {
                 display: none !important;
             }
-            @media screen and (min-width: 769px) {
+            body .main-container > .sub-container-2 {
+                width: 100%;
+            }
+            @media screen and (orientation: landscape) {
                 body .container.main-container {
-                    max-width: 1800px;
-                    width: calc(100% - 2rem);
+                    max-width: none;
+                    width: 75vw;
                 }
-                body .main-container > .sub-container-2 {
+            }
+            @media screen and (orientation: portrait) {
+                body .container.main-container {
+                    max-width: 100%;
                     width: 100%;
                 }
             }
@@ -1076,7 +1082,6 @@
             }
             #list_table .list-no,
             #list_table .list-sel,
-            #list_table .list-pri,
             #list_table .list-vst,
             #list_table .list-sp,
             #list_table .list-link,
@@ -1084,43 +1089,49 @@
                 width: 1%;
                 white-space: nowrap;
             }
+            #list_table .list-pri {
+                max-width: 2rem;
+                min-width: 2rem;
+                width: 2rem;
+            }
             #list_table .list-sp {
-                min-width: 6.5rem;
+                min-width: 5.75rem;
             }
             #list_table .list-name {
-                min-width: 12rem;
+                max-width: 0;
+                min-width: 6rem;
+                width: 30%;
             }
-            #list_table .wc-comitia-author {
-                min-width: 10rem;
-                text-align: left;
-                width: auto;
+            #list_table td.list-name > a {
+                display: block;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
             #list_table .list-info {
-                min-width: 16rem;
+                display: table-cell;
+                min-width: 12rem;
             }
             #list_table .wc-comitia-copy-button {
                 appearance: none;
-                background: transparent;
-                border: 0;
-                box-shadow: none;
+                background: #3273dc;
+                border: 1px solid #3273dc;
+                border-radius: 3px;
+                box-shadow: 0 1px 2px rgb(0 0 0 / 15%);
+                color: white;
                 cursor: pointer;
-                font-size: 1rem;
-                line-height: 1;
-                margin-left: 0.25rem;
-                padding: 0.1rem;
+                font-size: 0.75rem;
+                line-height: 1.4;
+                padding: 0.15rem 0.4rem;
                 vertical-align: middle;
+                white-space: nowrap;
             }
             #list_table .wc-comitia-copy-button:hover {
-                filter: brightness(0.8);
+                background: #2366d1;
             }
             #list_table .wc-comitia-copy-button:focus-visible {
                 outline: 2px solid #3273dc;
                 outline-offset: 1px;
-            }
-            @media screen and (max-width: 768px) {
-                #list_table {
-                    min-width: max-content;
-                }
             }
         `;
         document.head.appendChild(style);
@@ -1128,15 +1139,21 @@
         function ensureHeader() {
             const headerRow = table.querySelector('tr.circle-root:not(.list-row)');
             const nameHeader = headerRow?.querySelector('th.list-name');
-            if (!nameHeader || headerRow.querySelector('.wc-comitia-author')) return;
+            if (!nameHeader) return;
 
-            const authorHeader = document.createElement('th');
-            authorHeader.className = 'wc-comitia-author cut-list-hide';
-            authorHeader.textContent = '作者';
-            nameHeader.insertAdjacentElement('afterend', authorHeader);
+            headerRow.querySelector('th.wc-comitia-author')?.remove();
+            if (nameHeader.textContent !== 'サークル（作者）') {
+                nameHeader.textContent = 'サークル（作者）';
+            }
+            headerRow.querySelectorAll('.max-layout-only, .desktop-only, .mobile-hide')
+                .forEach(cell => cell.classList.remove(
+                    'max-layout-only',
+                    'desktop-only',
+                    'mobile-hide'
+                ));
         }
 
-        function ensureCopyButton(row, spaceCell, copyText) {
+        function ensureCopyButton(row, spaceCell, placement, copyText) {
             let button = spaceCell.querySelector('.wc-comitia-copy-button');
             if (!button) {
                 button = document.createElement('button');
@@ -1155,12 +1172,19 @@
                 spaceCell.appendChild(button);
             }
 
+            Array.from(spaceCell.childNodes)
+                .filter(node => node.nodeType === Node.TEXT_NODE)
+                .forEach(node => node.remove());
             button.className = 'wc-comitia-copy-button';
-            button.textContent = '📋';
+            const buttonText = `${placement}📋`;
+            if (button.textContent !== buttonText) {
+                button.textContent = buttonText;
+            }
             button._wcEnhancerCopyValue = copyText;
             button.title = `复制：${copyText}`;
             button.setAttribute('aria-label', button.title);
             button.disabled = !copyText;
+            spaceCell.dataset.wcEnhancerPlacement = placement;
             row.dataset.wcEnhancerCopyText = copyText;
         }
 
@@ -1169,22 +1193,42 @@
             const nameCell = row.querySelector('td.list-name');
             if (!spaceCell || !nameCell) return;
 
-            const placement = readDirectText(spaceCell);
-            const circleName = nameCell.querySelector('.circle-chk-name')?.textContent.trim() || '';
-            const authorName = row.querySelector('.list-info .circle-chk-pn')?.textContent.trim() || '';
+            row.querySelector('td.wc-comitia-author')?.remove();
+            row.querySelectorAll('.max-layout-only, .desktop-only, .mobile-hide')
+                .forEach(cell => cell.classList.remove(
+                    'max-layout-only',
+                    'desktop-only',
+                    'mobile-hide'
+                ));
 
-            let authorCell = row.querySelector('td.wc-comitia-author');
-            if (!authorCell) {
-                authorCell = document.createElement('td');
-                authorCell.className = 'wc-comitia-author cut-list-hide';
-                nameCell.insertAdjacentElement('afterend', authorCell);
+            const placement = readDirectText(spaceCell) ||
+                spaceCell.dataset.wcEnhancerPlacement || '';
+            const nameElement = nameCell.querySelector('.circle-chk-name');
+            if (!nameElement) return;
+
+            const authorName = row.querySelector('.list-info .circle-chk-pn')?.textContent.trim() || '';
+            const currentName = nameElement.textContent.trim();
+            const lastCombinedName = nameElement.dataset.wcEnhancerCombinedName || '';
+            if (!nameElement.dataset.wcEnhancerCircleName ||
+                (lastCombinedName && currentName !== lastCombinedName)) {
+                nameElement.dataset.wcEnhancerCircleName = currentName;
             }
-            if (authorCell.textContent !== authorName) {
-                authorCell.textContent = authorName;
+            const circleName = nameElement.dataset.wcEnhancerCircleName || currentName;
+            const combinedName = authorName ? `${circleName} (${authorName})` : circleName;
+
+            if (nameElement.textContent !== combinedName) {
+                nameElement.textContent = combinedName;
             }
+            nameElement.dataset.wcEnhancerCombinedName = combinedName;
+            nameCell.title = combinedName;
 
             const circleAuthor = buildCircleAuthor(circleName, authorName).cleaned;
-            ensureCopyButton(row, spaceCell, placement ? `${placement} ${circleAuthor}` : circleAuthor);
+            ensureCopyButton(
+                row,
+                spaceCell,
+                placement,
+                placement ? `${placement} ${circleAuthor}` : circleAuthor
+            );
         }
 
         let updateScheduled = false;
