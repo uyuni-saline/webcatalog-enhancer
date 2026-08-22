@@ -27,9 +27,11 @@ This repository contains a lightweight Tampermonkey userscript for Comike and CO
 - On the COMITIA list page, read the author from each row's `.circle-chk-pn`, keep the placement text unchanged, and reuse `buildCircleAuthor()` for the copied `placement [circle (author)]` value.
 - Keep COMITIA list enhancements idempotent because the site can redraw rows dynamically.
 - Hide COMITIA ad regions through their structural containers (`.sub-container-1`, `.sub-container-3`, and `.modal-ad`) and let the list region use the released space.
-- Merge COMITIA circle and author display into the existing name cell as `circle (author)`; do not add a separate author column.
-- Render the COMITIA placement and `📋` as one button while keeping its copied value in `placement [circle (author)]` format.
-- Keep the COMITIA color column at the site's original `2rem` width. In constrained layouts, truncate the circle/author cell first and do not responsively hide list columns.
+- Treat `#list_table_div.cut-list-mode` as the Web/application-cut detail layout and the absence of that class as the no-cut list layout. Observe class changes so switching modes is handled immediately.
+- In the no-cut COMITIA layout, keep circle and author in separate compact columns, hide the unused cut-view `情報` header, and render placement plus `📋` as one button.
+- In COMITIA cut detail layouts, preserve the site's table layout and append only a `📋` copy button to the end of each `リンク` button group.
+- Keep all COMITIA copy buttons white with black text, while keeping their copied value in `placement [circle (author)]` format.
+- Keep the COMITIA color column at the site's original `2rem` width in the no-cut layout and do not responsively hide its list columns.
 - Size the COMITIA main container to about 75% of the viewport in landscape orientation and 100% in portrait orientation.
 - Keep README content user-oriented; place implementation and release instructions here instead.
 - Publish approved lightweight changes directly to the `main` branch.
@@ -44,5 +46,5 @@ This repository contains a lightweight Tampermonkey userscript for Comike and CO
 - Test all three favorites-page copy buttons, including disabled placeholders before detail data arrives and idempotent re-rendering.
 - Verify that CSV output has the same number and order of fields as its header.
 - Confirm that repeated asynchronous rendering does not duplicate icon buttons.
-- Test the COMITIA example `う37a / 白いふわふわ / 花睡ささみ`, including the merged display, `う37a📋` button, copied text, and repeated row rendering.
-- Verify that COMITIA ad containers are hidden, the color column remains `2rem`, all list columns remain available, and the circle/author text truncates before other columns.
+- Test the COMITIA example `う37a / 白いふわふわ / 花睡ささみ` in all three display modes, including separate list columns, both button placements, copied text, mode switching, and repeated rendering.
+- Verify that COMITIA ad containers are hidden, the no-cut `情報` header stays hidden, the color column remains `2rem`, and cut detail layouts retain their original columns.
