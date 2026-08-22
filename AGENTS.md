@@ -27,7 +27,10 @@ This repository contains a lightweight Tampermonkey userscript for Comike and CO
 - On the COMITIA list page, read the author from each row's `.circle-chk-pn`, keep the placement text unchanged, and reuse `buildCircleAuthor()` for the copied `placement [circle (author)]` value.
 - Keep COMITIA list enhancements idempotent because the site can redraw rows dynamically.
 - Hide COMITIA ad regions through their structural containers (`.sub-container-1`, `.sub-container-3`, and `.modal-ad`) and let the list region use the released space.
-- Keep the COMITIA copy control as a borderless `📋` button, and preserve keyboard focus visibility.
+- Merge COMITIA circle and author display into the existing name cell as `circle (author)`; do not add a separate author column.
+- Render the COMITIA placement and `📋` as one button while keeping its copied value in `placement [circle (author)]` format.
+- Keep the COMITIA color column at the site's original `2rem` width. In constrained layouts, truncate the circle/author cell first and do not responsively hide list columns.
+- Size the COMITIA main container to about 75% of the viewport in landscape orientation and 100% in portrait orientation.
 - Keep README content user-oriented; place implementation and release instructions here instead.
 - Publish approved lightweight changes directly to the `main` branch.
 
@@ -41,5 +44,5 @@ This repository contains a lightweight Tampermonkey userscript for Comike and CO
 - Test all three favorites-page copy buttons, including disabled placeholders before detail data arrives and idempotent re-rendering.
 - Verify that CSV output has the same number and order of fields as its header.
 - Confirm that repeated asynchronous rendering does not duplicate icon buttons.
-- Test the COMITIA example `う37a / 白いふわふわ / 花睡ささみ`, including the author column, copied text, and repeated row rendering.
-- Verify that COMITIA ad containers are hidden and that the genre column remains on one line without forcing fixed-width table layout.
+- Test the COMITIA example `う37a / 白いふわふわ / 花睡ささみ`, including the merged display, `う37a📋` button, copied text, and repeated row rendering.
+- Verify that COMITIA ad containers are hidden, the color column remains `2rem`, all list columns remain available, and the circle/author text truncates before other columns.
