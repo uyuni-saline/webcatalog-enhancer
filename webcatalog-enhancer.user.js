@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WebCatalog Enhancer
 // @namespace    https://github.com/uyuni-saline/webcatalog-enhancer
-// @version      2.15.0
+// @version      2.16.0
 // @description  增强Comike及COMITIA Web Catalog的社团信息整理、复制与导出功能
 // @author       Saline
 // @homepageURL  https://github.com/uyuni-saline/webcatalog-enhancer
@@ -1054,32 +1054,72 @@
 
         const style = document.createElement('style');
         style.textContent = `
+            body .main-container > .sub-container-1,
+            body .main-container > .sub-container-3,
+            body .modal-ad {
+                display: none !important;
+            }
             @media screen and (min-width: 769px) {
                 body .container.main-container {
                     max-width: 1800px;
                     width: calc(100% - 2rem);
                 }
+                body .main-container > .sub-container-2 {
+                    width: 100%;
+                }
             }
             #list_table_div {
                 overflow-x: auto;
             }
+            #list_table {
+                table-layout: auto;
+            }
+            #list_table .list-no,
+            #list_table .list-sel,
+            #list_table .list-pri,
+            #list_table .list-vst,
+            #list_table .list-sp,
+            #list_table .list-link,
+            #list_table .list-genre {
+                width: 1%;
+                white-space: nowrap;
+            }
             #list_table .list-sp {
-                width: 8rem;
+                min-width: 6.5rem;
+            }
+            #list_table .list-name {
+                min-width: 12rem;
             }
             #list_table .wc-comitia-author {
+                min-width: 10rem;
                 text-align: left;
-                width: 10rem;
+                width: auto;
+            }
+            #list_table .list-info {
+                min-width: 16rem;
             }
             #list_table .wc-comitia-copy-button {
-                font-size: 0.7rem;
-                margin-left: 0.4rem;
-                padding-left: 0.45rem;
-                padding-right: 0.45rem;
+                appearance: none;
+                background: transparent;
+                border: 0;
+                box-shadow: none;
+                cursor: pointer;
+                font-size: 1rem;
+                line-height: 1;
+                margin-left: 0.25rem;
+                padding: 0.1rem;
                 vertical-align: middle;
+            }
+            #list_table .wc-comitia-copy-button:hover {
+                filter: brightness(0.8);
+            }
+            #list_table .wc-comitia-copy-button:focus-visible {
+                outline: 2px solid #3273dc;
+                outline-offset: 1px;
             }
             @media screen and (max-width: 768px) {
                 #list_table {
-                    min-width: 52rem;
+                    min-width: max-content;
                 }
             }
         `;
@@ -1101,8 +1141,7 @@
             if (!button) {
                 button = document.createElement('button');
                 button.type = 'button';
-                button.className = 'wc-comitia-copy-button button is-small is-info';
-                button.textContent = '复制';
+                button.className = 'wc-comitia-copy-button';
                 button.addEventListener('click', event => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1116,6 +1155,8 @@
                 spaceCell.appendChild(button);
             }
 
+            button.className = 'wc-comitia-copy-button';
+            button.textContent = '📋';
             button._wcEnhancerCopyValue = copyText;
             button.title = `复制：${copyText}`;
             button.setAttribute('aria-label', button.title);
